@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import type { POFormValues } from "@/lib/types";
 import type { Style } from "@db/schema";
-import { format as formatDate } from "date-fns";
+import { format } from "date-fns";
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 
@@ -47,7 +47,7 @@ export default function POPreview({ data }: Props) {
     doc.setFontSize(12);
     doc.setTextColor(44, 62, 80);
     doc.text(`PO Type: ${data.poType}`, 20, 60);
-    doc.text(`Order Date: ${formatDate(data.orderDate, "MMMM d, yyyy")}`, 105, 60);
+    doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 105, 60);
 
     // Ship To and Bill To sections with better formatting
     doc.setFontSize(12);
@@ -66,8 +66,8 @@ export default function POPreview({ data }: Props) {
 
     // Shipping Dates with improved layout
     doc.setFontSize(11);
-    doc.text(`Start Ship: ${formatDate(data.startShipDate, "MMM d, yyyy")}`, 20, 105);
-    doc.text(`Cancel Date: ${formatDate(data.cancelDate, "MMM d, yyyy")}`, 105, 105);
+    doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 20, 105);
+    doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 105, 105);
 
     // Items Table with modern styling
     const tableData = data.items.map(item => {
@@ -148,15 +148,15 @@ export default function POPreview({ data }: Props) {
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Order Date</h3>
-            <p className="text-gray-700">{formatDate(data.orderDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(data.orderDate, "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Start Ship Date</h3>
-            <p className="text-gray-700">{formatDate(data.startShipDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(data.startShipDate, "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Cancel Date</h3>
-            <p className="text-gray-700">{formatDate(data.cancelDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(data.cancelDate, "MMMM d, yyyy")}</p>
           </div>
         </div>
 
