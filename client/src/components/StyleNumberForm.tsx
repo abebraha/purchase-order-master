@@ -17,13 +17,11 @@ import { useToast } from "@/hooks/use-toast";
 export default function StyleNumberForm() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const form = useForm<StyleFormValues>({
     resolver: zodResolver(StyleFormSchema),
     defaultValues: {
       styleNumber: "",
-      color: "",
-      description: "",
     },
   });
 
@@ -34,11 +32,11 @@ export default function StyleNumberForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      
+
       if (!res.ok) {
         throw new Error("Failed to create style");
       }
-      
+
       return res.json();
     },
     onSuccess: () => {
@@ -67,34 +65,6 @@ export default function StyleNumberForm() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Style Number</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={form.control}
-          name="color"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Color</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Description</FormLabel>
               <FormControl>
                 <Input {...field} />
               </FormControl>

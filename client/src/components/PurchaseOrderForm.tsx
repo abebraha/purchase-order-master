@@ -33,7 +33,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
-      items: [{ styleId: 0, quantity: 1, price: 0 }],
+      items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "" }],
     },
   });
 
@@ -145,7 +145,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
         </div>
 
         {form.watch("items").map((_, index) => (
-          <div key={index} className="grid gap-4 md:grid-cols-3">
+          <div key={index} className="grid gap-4 md:grid-cols-5">
             <FormField
               control={form.control}
               name={`items.${index}.styleId`}
@@ -156,13 +156,41 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
                     <Combobox
                       items={styles?.map((style) => ({
                         value: style.id.toString(),
-                        label: `${style.styleNumber} - ${style.color} - ${style.description}`,
+                        label: style.styleNumber
                       })) || []}
                       value={field.value.toString()}
                       onSelect={(value) => field.onChange(parseInt(value))}
                       placeholder="Search style number"
                       emptyMessage="No style numbers found."
                     />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name={`items.${index}.color`}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Color</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name={`items.${index}.description`}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -207,7 +235,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
               const items = form.getValues("items");
               form.setValue("items", [
                 ...items,
-                { styleId: 0, quantity: 1, price: 0 },
+                { styleId: 0, quantity: 1, price: 0, color: "", description: "" },
               ]);
             }}
           >
