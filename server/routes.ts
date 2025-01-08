@@ -35,23 +35,42 @@ export function registerRoutes(app: Express): Server {
       const records: any[] = [];
       const parser = parse({
         columns: true,
-        skip_empty_lines: true
+        skip_empty_lines: true,
+        trim: true
       });
 
+      // Set up parser event handlers
       parser.on('readable', function() {
         let record;
         while ((record = parser.read()) !== null) {
-          if (record.style_number) {
-            records.push({
-              styleNumber: record.style_number.trim(),
-            });
+          // Log the raw record for debugging
+          console.log('Parsed record:', record);
+
+          // Check for style_number in case-insensitive way
+          const styleNumberKey = Object.keys(record).find(
+            key => key.toLowerCase() === 'style_number'
+          );
+
+          if (styleNumberKey && record[styleNumberKey]) {
+            const styleNumber = record[styleNumberKey].trim();
+            if (styleNumber) {
+              records.push({
+                styleNumber: styleNumber,
+              });
+            }
           }
         }
       });
 
       const parsePromise = new Promise((resolve, reject) => {
-        parser.on('error', reject);
-        parser.on('end', resolve);
+        parser.on('error', (error) => {
+          console.error('CSV parsing error:', error);
+          reject(error);
+        });
+        parser.on('end', () => {
+          console.log('Finished parsing. Total records:', records.length);
+          resolve(null);
+        });
       });
 
       // Convert buffer to readable stream
@@ -62,20 +81,36 @@ export function registerRoutes(app: Express): Server {
 
       await parsePromise;
 
+      console.log('Raw records:', records);
+
       // Filter out duplicates based on styleNumber
       const uniqueRecords = records.filter((record, index, self) =>
         index === self.findIndex((r) => r.styleNumber === record.styleNumber)
       );
 
+      console.log('Unique records to insert:', uniqueRecords);
+
       // Insert all unique records
       if (uniqueRecords.length > 0) {
-        await db.insert(styles).values(uniqueRecords);
-      }
+        const inserted = await db.insert(styles)
+          .values(uniqueRecords)
+          .onConflictDoNothing({ target: styles.styleNumber })
+          .returning();
 
-      res.json({ message: `Imported ${uniqueRecords.length} style numbers successfully` });
+        console.log('Inserted records:', inserted);
+        res.json({ 
+          message: `Imported ${inserted.length} style numbers successfully`,
+          imported: inserted 
+        });
+      } else {
+        res.json({ message: 'No valid style numbers found to import' });
+      }
     } catch (error) {
       console.error('Error importing CSV:', error);
-      res.status(500).json({ error: 'Failed to import style numbers' });
+      res.status(500).json({ 
+        error: 'Failed to import style numbers',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
