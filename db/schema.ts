@@ -6,6 +6,8 @@ import { z } from "zod";
 export const styles = pgTable("styles", {
   id: serial("id").primaryKey(),
   styleNumber: text("style_number").unique().notNull(),
+  color: text("color").default('').notNull(),
+  description: text("description").default('').notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

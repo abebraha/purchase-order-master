@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const StyleFormSchema = z.object({
   styleNumber: z.string().min(1, "Style number is required"),
+  color: z.string().optional(),
+  description: z.string().optional(),
 });
 
 export const POFormSchema = z.object({

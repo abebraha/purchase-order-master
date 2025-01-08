@@ -14,39 +14,51 @@ export function registerRoutes(app: Express): Server {
 
   // Style Number Routes
   app.get("/api/styles", async (req, res) => {
-    const allStyles = await db.query.styles.findMany({
-      orderBy: [desc(styles.styleNumber)],
-    });
-    res.json(allStyles);
+    try {
+      const allStyles = await db.query.styles.findMany({
+        orderBy: [desc(styles.styleNumber)],
+      });
+      res.json(allStyles);
+    } catch (error) {
+      console.error('Error fetching styles:', error);
+      res.status(500).json({ error: 'Failed to fetch styles' });
+    }
   });
 
   app.post("/api/styles", async (req, res) => {
-    const newStyle = await db.insert(styles).values(req.body).returning();
-    res.json(newStyle[0]);
+    try {
+      const { styleNumber, color = '', description = '' } = req.body;
+      const newStyle = await db.insert(styles)
+        .values({ 
+          styleNumber, 
+          color, 
+          description 
+        })
+        .returning();
+      res.json(newStyle[0]);
+    } catch (error) {
+      console.error('Error creating style:', error);
+      res.status(500).json({ error: 'Failed to create style' });
+    }
   });
 
   app.post("/api/styles/import", upload.single('file'), async (req, res) => {
     if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded' });
-      return;
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
     try {
-      const records: any[] = [];
+      const records: { styleNumber: string; color: string; description: string; }[] = [];
       const parser = parse({
         columns: true,
         skip_empty_lines: true,
         trim: true
       });
 
-      // Set up parser event handlers
       parser.on('readable', function() {
         let record;
         while ((record = parser.read()) !== null) {
-          // Log the raw record for debugging
-          console.log('Parsed record:', record);
-
-          // Check for style_number in case-insensitive way
+          // Find the style_number column (case-insensitive)
           const styleNumberKey = Object.keys(record).find(
             key => key.toLowerCase() === 'style_number'
           );
@@ -54,8 +66,10 @@ export function registerRoutes(app: Express): Server {
           if (styleNumberKey && record[styleNumberKey]) {
             const styleNumber = record[styleNumberKey].trim();
             if (styleNumber) {
-              records.push({
-                styleNumber: styleNumber,
+              records.push({ 
+                styleNumber,
+                color: '',
+                description: ''
               });
             }
           }
@@ -63,14 +77,8 @@ export function registerRoutes(app: Express): Server {
       });
 
       const parsePromise = new Promise((resolve, reject) => {
-        parser.on('error', (error) => {
-          console.error('CSV parsing error:', error);
-          reject(error);
-        });
-        parser.on('end', () => {
-          console.log('Finished parsing. Total records:', records.length);
-          resolve(null);
-        });
+        parser.on('error', reject);
+        parser.on('end', resolve);
       });
 
       // Convert buffer to readable stream
@@ -81,33 +89,36 @@ export function registerRoutes(app: Express): Server {
 
       await parsePromise;
 
-      console.log('Raw records:', records);
-
-      // Filter out duplicates based on styleNumber
-      const uniqueRecords = records.filter((record, index, self) =>
-        index === self.findIndex((r) => r.styleNumber === record.styleNumber)
-      );
-
-      console.log('Unique records to insert:', uniqueRecords);
-
-      // Insert all unique records
-      if (uniqueRecords.length > 0) {
-        const inserted = await db.insert(styles)
-          .values(uniqueRecords)
-          .onConflictDoNothing({ target: styles.styleNumber })
-          .returning();
-
-        console.log('Inserted records:', inserted);
-        res.json({ 
-          message: `Imported ${inserted.length} style numbers successfully`,
-          imported: inserted 
+      if (records.length === 0) {
+        return res.status(400).json({ 
+          error: 'No valid style numbers found in the CSV file',
+          message: 'Please ensure your CSV file has a "style_number" column and contains valid style numbers.'
         });
-      } else {
-        res.json({ message: 'No valid style numbers found to import' });
       }
+
+      // Insert records one by one to handle duplicates gracefully
+      const results = [];
+      for (const record of records) {
+        try {
+          const [inserted] = await db.insert(styles)
+            .values(record)
+            .onConflictDoNothing({ target: styles.styleNumber })
+            .returning();
+          if (inserted) {
+            results.push(inserted);
+          }
+        } catch (error) {
+          console.error('Error inserting style:', record, error);
+        }
+      }
+
+      res.json({
+        message: `Successfully imported ${results.length} style numbers`,
+        imported: results
+      });
     } catch (error) {
       console.error('Error importing CSV:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to import style numbers',
         details: error instanceof Error ? error.message : 'Unknown error'
       });

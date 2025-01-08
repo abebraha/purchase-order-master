@@ -22,6 +22,8 @@ export default function StyleNumberForm() {
     resolver: zodResolver(StyleFormSchema),
     defaultValues: {
       styleNumber: "",
+      color: "",
+      description: "",
     },
   });
 
@@ -65,6 +67,34 @@ export default function StyleNumberForm() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Style Number</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="color"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Color (Optional)</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (Optional)</FormLabel>
               <FormControl>
                 <Input {...field} />
               </FormControl>
