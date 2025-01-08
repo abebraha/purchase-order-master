@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import type { POFormValues } from "@/lib/types";
 import type { Style } from "@db/schema";
-import { format } from "date-fns";
+import { format as formatDate } from "date-fns";
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 
@@ -43,10 +43,11 @@ export default function POPreview({ data }: Props) {
     doc.setDrawColor(189, 195, 199);
     doc.line(20, 50, 190, 50);
 
-    // Order Information
+    // PO Type and Order Information
     doc.setFontSize(12);
     doc.setTextColor(44, 62, 80);
-    doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 20, 60);
+    doc.text(`PO Type: ${data.poType}`, 20, 60);
+    doc.text(`Order Date: ${formatDate(data.orderDate, "MMMM d, yyyy")}`, 105, 60);
 
     // Ship To and Bill To sections with better formatting
     doc.setFontSize(12);
@@ -65,8 +66,8 @@ export default function POPreview({ data }: Props) {
 
     // Shipping Dates with improved layout
     doc.setFontSize(11);
-    doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 20, 105);
-    doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 105, 105);
+    doc.text(`Start Ship: ${formatDate(data.startShipDate, "MMM d, yyyy")}`, 20, 105);
+    doc.text(`Cancel Date: ${formatDate(data.cancelDate, "MMM d, yyyy")}`, 105, 105);
 
     // Items Table with modern styling
     const tableData = data.items.map(item => {
@@ -140,18 +141,22 @@ export default function POPreview({ data }: Props) {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 mb-8">
+        <div className="grid md:grid-cols-4 gap-8 mb-8">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">PO Type</h3>
+            <p className="text-gray-700">{data.poType}</p>
+          </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Order Date</h3>
-            <p className="text-gray-700">{format(data.orderDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{formatDate(data.orderDate, "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Start Ship Date</h3>
-            <p className="text-gray-700">{format(data.startShipDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{formatDate(data.startShipDate, "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Cancel Date</h3>
-            <p className="text-gray-700">{format(data.cancelDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{formatDate(data.cancelDate, "MMMM d, yyyy")}</p>
           </div>
         </div>
 
@@ -173,8 +178,8 @@ export default function POPreview({ data }: Props) {
                 return (
                   <TableRow key={index} className="hover:bg-gray-50">
                     <TableCell className="font-medium">{style?.styleNumber}</TableCell>
-                    <TableCell>{style?.color}</TableCell>
-                    <TableCell>{style?.description}</TableCell>
+                    <TableCell>{item.color}</TableCell>
+                    <TableCell>{item.description}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
                     <TableCell className="text-right">${item.price.toFixed(2)}</TableCell>
                     <TableCell className="text-right">${(item.quantity * item.price).toFixed(2)}</TableCell>

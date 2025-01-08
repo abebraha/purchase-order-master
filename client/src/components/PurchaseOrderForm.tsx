@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Combobox } from "@/components/ui/combobox";
 import { POFormSchema, type POFormValues } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -28,6 +29,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
   const form = useForm<POFormValues>({
     resolver: zodResolver(POFormSchema),
     defaultValues: {
+      poType: "Regular PO",
       orderDate: new Date(),
       shipTo: "",
       billTo: "",
@@ -70,6 +72,40 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-6">
+        <FormField
+          control={form.control}
+          name="poType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>PO Type</FormLabel>
+              <FormControl>
+                <RadioGroup
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                  className="flex space-x-4"
+                >
+                  <FormItem className="flex items-center space-x-2">
+                    <FormControl>
+                      <RadioGroupItem value="Regular PO" />
+                    </FormControl>
+                    <FormLabel className="font-normal">
+                      Regular PO
+                    </FormLabel>
+                  </FormItem>
+                  <FormItem className="flex items-center space-x-2">
+                    <FormControl>
+                      <RadioGroupItem value="Bulk" />
+                    </FormControl>
+                    <FormLabel className="font-normal">
+                      Bulk
+                    </FormLabel>
+                  </FormItem>
+                </RadioGroup>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
