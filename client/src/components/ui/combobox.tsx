@@ -38,6 +38,17 @@ export function Combobox({
   emptyMessage = "No results found.",
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+
+  const filteredItems = React.useMemo(() => {
+    if (!searchQuery) return items;
+    const lowerQuery = searchQuery.toLowerCase();
+    return items.filter(
+      item => 
+        item.label.toLowerCase().includes(lowerQuery) || 
+        item.value.toLowerCase().includes(lowerQuery)
+    );
+  }, [items, searchQuery]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -49,22 +60,27 @@ export function Combobox({
           className="w-full justify-between"
         >
           {value
-            ? items.find((item) => item.value === value)?.label
+            ? items.find((item) => item.value === value)?.label || placeholder
             : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0">
-        <Command>
-          <CommandInput placeholder={`Search ${placeholder.toLowerCase()}...`} />
+        <Command shouldFilter={false}>
+          <CommandInput 
+            placeholder={`Search ${placeholder.toLowerCase()}...`}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
           <CommandEmpty>{emptyMessage}</CommandEmpty>
           <CommandGroup className="max-h-60 overflow-auto">
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <CommandItem
                 key={item.value}
                 value={item.value}
                 onSelect={(currentValue) => {
                   onSelect(currentValue);
+                  setSearchQuery("");
                   setOpen(false);
                 }}
               >
