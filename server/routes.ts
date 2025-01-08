@@ -3,6 +3,11 @@ import { createServer, type Server } from "http";
 import { db } from "@db";
 import { styles, purchaseOrders, poItems } from "@db/schema";
 import { desc, eq } from "drizzle-orm";
+import multer from "multer";
+import { parse } from "csv-parse";
+import { Readable } from "stream";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -18,6 +23,60 @@ export function registerRoutes(app: Express): Server {
   app.post("/api/styles", async (req, res) => {
     const newStyle = await db.insert(styles).values(req.body).returning();
     res.json(newStyle[0]);
+  });
+
+  app.post("/api/styles/import", upload.single('file'), async (req, res) => {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+
+    try {
+      const records: any[] = [];
+      const parser = parse({
+        columns: true,
+        skip_empty_lines: true
+      });
+
+      parser.on('readable', function() {
+        let record;
+        while ((record = parser.read()) !== null) {
+          if (record.style_number) {
+            records.push({
+              styleNumber: record.style_number.trim(),
+            });
+          }
+        }
+      });
+
+      const parsePromise = new Promise((resolve, reject) => {
+        parser.on('error', reject);
+        parser.on('end', resolve);
+      });
+
+      // Convert buffer to readable stream
+      const bufferStream = new Readable();
+      bufferStream.push(req.file.buffer);
+      bufferStream.push(null);
+      bufferStream.pipe(parser);
+
+      await parsePromise;
+
+      // Filter out duplicates based on styleNumber
+      const uniqueRecords = records.filter((record, index, self) =>
+        index === self.findIndex((r) => r.styleNumber === record.styleNumber)
+      );
+
+      // Insert all unique records
+      if (uniqueRecords.length > 0) {
+        await db.insert(styles).values(uniqueRecords);
+      }
+
+      res.json({ message: `Imported ${uniqueRecords.length} style numbers successfully` });
+    } catch (error) {
+      console.error('Error importing CSV:', error);
+      res.status(500).json({ error: 'Failed to import style numbers' });
+    }
   });
 
   app.put("/api/styles/:id", async (req, res) => {

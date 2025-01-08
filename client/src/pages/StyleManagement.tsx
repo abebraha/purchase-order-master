@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,12 +11,61 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import type { Style } from "@db/schema";
 
 export default function StyleManagement() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: styles } = useQuery<Style[]>({
     queryKey: ["/api/styles"],
   });
+
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/styles/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to import style numbers');
+      }
+
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/styles"] });
+      toast({
+        title: "Import successful",
+        description: "Style numbers have been imported successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Import failed",
+        description: "Failed to import style numbers. Please check your CSV file.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === "text/csv") {
+      importMutation.mutate(file);
+    } else {
+      toast({
+        title: "Invalid file",
+        description: "Please select a CSV file.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="container mx-auto p-6">
@@ -34,6 +83,20 @@ export default function StyleManagement() {
           </CardHeader>
           <CardContent>
             <StyleNumberForm />
+            <div className="mt-4 border-t pt-4">
+              <h3 className="text-sm font-medium mb-2">Import from CSV</h3>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  disabled={importMutation.isPending}
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Upload a CSV file with style numbers. The file should have a "style_number" column.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
@@ -46,8 +109,6 @@ export default function StyleManagement() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Style #</TableHead>
-                  <TableHead>Color</TableHead>
-                  <TableHead>Description</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -55,8 +116,6 @@ export default function StyleManagement() {
                 {styles?.map((style) => (
                   <TableRow key={style.id}>
                     <TableCell>{style.styleNumber}</TableCell>
-                    <TableCell>{style.color}</TableCell>
-                    <TableCell>{style.description}</TableCell>
                     <TableCell>
                       <Button
                         variant="destructive"
