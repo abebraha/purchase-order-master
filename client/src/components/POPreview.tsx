@@ -8,6 +8,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableFooter,
 } from "@/components/ui/table";
 import type { POFormValues } from "@/lib/types";
 import type { Style } from "@db/schema";
@@ -21,6 +22,10 @@ interface Props {
 
 export default function POPreview({ data }: Props) {
   const { data: styles } = useQuery<Style[]>({ queryKey: ["/api/styles"] });
+
+  // Calculate totals
+  const totalQuantity = data.items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalCost = data.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
   const generatePDF = () => {
     const doc = new jsPDF();
@@ -104,10 +109,6 @@ export default function POPreview({ data }: Props) {
       },
       margin: { top: 10 },
     });
-
-    // Totals with improved visibility
-    const totalQuantity = data.items.reduce((sum, item) => sum + item.quantity, 0);
-    const totalCost = data.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
     const finalY = (doc as any).lastAutoTable.finalY + 15;
 
@@ -195,6 +196,14 @@ export default function POPreview({ data }: Props) {
                 );
               })}
             </TableBody>
+            <TableFooter className="bg-gray-50">
+              <TableRow>
+                <TableCell colSpan={3} className="font-medium text-right">Totals</TableCell>
+                <TableCell className="text-right font-medium">{totalQuantity}</TableCell>
+                <TableCell className="text-right font-medium"></TableCell>
+                <TableCell className="text-right font-medium">${totalCost.toFixed(2)}</TableCell>
+              </TableRow>
+            </TableFooter>
           </Table>
         </div>
 
