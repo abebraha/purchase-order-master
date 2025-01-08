@@ -1,0 +1,289 @@
+Detailed Specifications Document
+
+App Name: Purchase Order Generator
+
+Objective
+
+To develop a robust app that allows users to:
+
+Input style numbers, quantities, and prices.
+
+Generate professional purchase orders (POs) in PDF format.
+
+Maintain and manage a dynamic dropdown list of style numbers.
+
+Functional Requirements
+
+1. Input Functionality
+
+Description:
+
+The app must allow users to input details for generating purchase orders. These include:
+
+Style Number:
+
+Preloaded dropdown list with existing style numbers from a database.
+
+Autofill functionality when users type a few characters.
+
+Ability to manually add new style numbers, edit existing ones, or delete entries.
+
+Quantity: Numeric input field to specify the quantity of items.
+
+Price: Numeric input field to specify the price per unit.
+
+Additional Fields:
+
+Order Date (default: current date, editable by user).
+
+Ship To and Bill To (free-text fields for address input).
+
+Start Ship Date and Cancel Date (calendar input).
+
+Validation:
+
+All fields must have basic validation rules:
+
+Style Number must be selected from the dropdown or manually added.
+
+Quantity and Price must be positive numeric values.
+
+Dates must follow the format MM/DD/YYYY.
+
+Ship To and Bill To must not be left blank.
+
+UI Implementation:
+
+Use labeled input fields for clarity.
+
+Dropdown for Style Number with an “Add New” button for manual additions.
+
+Separate sections for product details and order details.
+
+2. Dropdown List Management
+
+Description:
+
+The app will include a dynamic dropdown for style numbers with:
+
+Preloaded Data: Import from an Excel file (e.g., Style Numbers.xlsx).
+
+Add/Edit/Delete Functionality:
+
+Add a new style number through a form (fields: Style #, Color, Description).
+
+Edit existing style numbers directly in the dropdown management section.
+
+Delete a style number after confirmation to prevent accidental removal.
+
+UI Implementation:
+
+Create a “Style Number Management” tab in the app.
+
+Use a table view to display all style numbers with “Edit” and “Delete” buttons.
+
+Include an “Import” button to upload Excel files and overwrite or merge with existing data.
+
+3. Purchase Order Generation
+
+Description:
+
+The app must generate a purchase order PDF that includes the following:
+
+Header Section:
+
+United Intimate Group
+
+1410 Broadway/ Suite 1502, New York, NY, 10018
+
+Email: ira@unitedintimate.com
+
+Phone: Office - 347-380-8420, Cell - 646-251-2759
+
+Order Information:
+
+Order Date.
+
+Ship To.
+
+Bill To.
+
+Start Ship Date.
+
+Cancel Date.
+
+Table of Products:
+
+Style #.
+
+Color.
+
+Description.
+
+Quantity.
+
+Cost.
+
+Footer (Optional):
+
+Total Quantity.
+
+Total Cost (calculated as Quantity x Cost for all rows).
+
+UI Implementation:
+
+Include a “Generate PDF” button on the main screen.
+
+Use libraries like jsPDF (for web) or ReportLab (for desktop) to create PDF documents.
+
+Preview feature to review the PO before downloading.
+
+PDF Design:
+
+Ensure layout matches the sample attached (Easy Pickens po # 85139.pdf).
+
+Use consistent font sizes, alignment, and spacing.
+
+4. User Interface
+
+Description:
+
+Design a simple, user-friendly interface with the following sections:
+
+Home: Main screen for PO creation.
+
+Style Number Management: Tab for managing style numbers.
+
+PO History: Tab for viewing previously generated POs (optional feature).
+
+UI Wireframes:
+
+Home Screen:
+
+Header: App name and navigation menu.
+
+PO Form:
+
+Input fields for Ship To, Bill To, Order Date, Start Ship Date, Cancel Date.
+
+Table for adding products (rows for Style Number, Quantity, Price).
+
+Buttons: “Add Row”, “Generate PO”, “Clear Form”.
+
+Style Number Management Screen:
+
+Table view of existing style numbers.
+
+Buttons: “Add New”, “Edit”, “Delete”, “Import”.
+
+Technical Specifications
+
+Tech Stack:
+
+Frontend: ReactJS for a dynamic and interactive UI.
+
+Backend: Node.js or Django for API and data handling.
+
+Database: SQLite (local) or Firebase (cloud) for storing style numbers and PO data.
+
+PDF Generation:
+
+Web: jsPDF.
+
+Desktop: ReportLab or PyPDF2.
+
+Database Schema:
+
+StyleNumbers Table:
+
+ID (Primary Key, Auto-increment).
+
+Style Number.
+
+Color.
+
+Description.
+
+PurchaseOrders Table:
+
+ID (Primary Key, Auto-increment).
+
+Order Date.
+
+Ship To.
+
+Bill To.
+
+Start Ship Date.
+
+Cancel Date.
+
+PurchaseOrderDetails Table:
+
+ID (Primary Key, Auto-increment).
+
+PO ID (Foreign Key).
+
+Style Number.
+
+Quantity.
+
+Cost.
+
+Step-by-Step Development Guide
+
+1. Setup Environment
+
+Install required tools:
+
+Node.js and npm for web development.
+
+Python and Django for backend (if chosen).
+
+Database tool like SQLite or Firebase.
+
+Setup project folder structure:
+
+frontend/ for React code.
+
+backend/ for API and database logic.
+
+2. Implement Dropdown List Management
+
+Load initial data from Style Numbers.xlsx into the database.
+
+Create API endpoints to:
+
+Fetch all style numbers.
+
+Add, edit, and delete style numbers.
+
+Develop the management UI.
+
+3. Develop Purchase Order Form
+
+Create a React component for the form.
+
+Implement input validation.
+
+Use state management (e.g., Redux) to handle form data.
+
+4. Implement PDF Generation
+
+Design a template matching the sample PO.
+
+Map form inputs to the template.
+
+Test PDF generation with various inputs.
+
+5. Testing
+
+Validate each module independently.
+
+Test end-to-end functionality:
+
+Input data.
+
+Generate and download PO.
+
+Add/edit/delete style numbers.
