@@ -33,53 +33,66 @@ export default function POPreview({ data }: Props) {
     // Set custom fonts for a more modern look
     doc.setFont("helvetica");
 
-    // PO Number in top right
+    // Add a subtle background gradient
+    const width = doc.internal.pageSize.width;
+    const height = doc.internal.pageSize.height;
+    doc.setFillColor(249, 250, 251); // Very light gray
+    doc.rect(0, 0, width, height, 'F');
+
+    // Modern header design
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(15, 15, width - 30, 45, 3, 3, 'F');
+
+    // Company header with modern styling
+    doc.setFontSize(24);
+    doc.setTextColor(44, 62, 80);
+    doc.text("United Intimate Group", 105, 30, { align: "center" });
+
+    // PO Number with enhanced visibility
     doc.setFontSize(14);
     doc.setTextColor(44, 62, 80);
-    doc.text(`PO #: ${data.poNumber}`, 190, 20, { align: "right" });
+    doc.text(`PO #: ${data.poNumber}`, 190, 25, { align: "right" });
 
-    // Header with company logo and info
-    doc.setFontSize(24);
-    doc.setTextColor(44, 62, 80); // Dark blue-gray
-    doc.text("United Intimate Group", 105, 25, { align: "center" });
-
+    // Contact information with improved layout
     doc.setFontSize(10);
-    doc.setTextColor(127, 140, 141); // Lighter gray for secondary text
-    doc.text("1410 Broadway/ Suite 1502, New York, NY, 10018", 105, 35, { align: "center" });
-    doc.text("Email: ira@unitedintimate.com", 105, 40, { align: "center" });
-    doc.text("Phone: Office - 347-380-8420, Cell - 646-251-2759", 105, 45, { align: "center" });
+    doc.setTextColor(107, 114, 128);
+    doc.text("1410 Broadway/ Suite 1502, New York, NY, 10018", 105, 38, { align: "center" });
+    doc.text("Email: ira@unitedintimate.com", 105, 43, { align: "center" });
+    doc.text("Phone: Office - 347-380-8420, Cell - 646-251-2759", 105, 48, { align: "center" });
 
-    // Add a subtle separator line
-    doc.setDrawColor(189, 195, 199);
-    doc.line(20, 50, 190, 50);
+    // Info section with modern card-like design
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(15, 70, width - 30, 40, 3, 3, 'F');
 
-    // PO Type and Order Information
+    // Order information with improved layout
+    doc.setFontSize(11);
+    doc.setTextColor(44, 62, 80);
+    doc.text(`PO Type: ${data.poType}`, 25, 82);
+    doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 25, 89);
+    doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 115, 82);
+    doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 115, 89);
+
+    // Address section with card-like design
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(15, 120, (width - 35) / 2, 40, 3, 3, 'F');
+    doc.roundedRect((width + 5) / 2, 120, (width - 35) / 2, 40, 3, 3, 'F');
+
+    // Ship To and Bill To with improved formatting
     doc.setFontSize(12);
     doc.setTextColor(44, 62, 80);
-    doc.text(`PO Type: ${data.poType}`, 20, 60);
-    doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 105, 60);
+    doc.text("Ship To:", 25, 130);
+    doc.text("Bill To:", (width + 15) / 2, 130);
 
-    // Ship To and Bill To sections with better formatting
-    doc.setFontSize(12);
-    doc.text("Ship To:", 20, 70);
     doc.setFontSize(10);
+    doc.setTextColor(75, 85, 99);
     data.shipTo.split('\n').forEach((line, i) => {
-      doc.text(line, 20, 77 + (i * 5));
+      doc.text(line, 25, 138 + (i * 5));
     });
-
-    doc.setFontSize(12);
-    doc.text("Bill To:", 105, 70);
-    doc.setFontSize(10);
     data.billTo.split('\n').forEach((line, i) => {
-      doc.text(line, 105, 77 + (i * 5));
+      doc.text(line, (width + 15) / 2, 138 + (i * 5));
     });
 
-    // Shipping Dates with improved layout
-    doc.setFontSize(11);
-    doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 20, 105);
-    doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 105, 105);
-
-    // Items Table with modern styling
+    // Items table with modern styling
     const tableData = data.items.map(item => {
       const style = styles?.find(s => s.id === item.styleId);
       return [
@@ -93,29 +106,42 @@ export default function POPreview({ data }: Props) {
     });
 
     autoTable(doc, {
-      startY: 115,
+      startY: 170,
       head: [['Style #', 'Color', 'Description', 'Quantity', 'Price', 'Total']],
       body: tableData,
       headStyles: {
-        fillColor: [44, 62, 80],
-        fontSize: 10,
+        fillColor: [244, 244, 245],
+        textColor: [15, 23, 42],
+        fontSize: 11,
         fontStyle: 'bold',
+        halign: 'left',
       },
       bodyStyles: {
-        fontSize: 9,
+        fontSize: 10,
+        textColor: [55, 65, 81],
       },
       alternateRowStyles: {
         fillColor: [249, 250, 251],
       },
       margin: { top: 10 },
+      styles: {
+        cellPadding: 5,
+        fontSize: 10,
+        lineColor: [226, 232, 240],
+        lineWidth: 0.1,
+      },
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 15;
 
+    // Total section with card-like design
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(width - 80, finalY, 65, 25, 3, 3, 'F');
+
     doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total Quantity: ${totalQuantity}`, 20, finalY);
-    doc.text(`Total Cost: $${totalCost.toFixed(2)}`, 105, finalY);
+    doc.setTextColor(44, 62, 80);
+    doc.text(`Total Quantity: ${totalQuantity}`, width - 75, finalY + 8);
+    doc.text(`Total Cost: $${totalCost.toFixed(2)}`, width - 75, finalY + 18);
 
     doc.save('purchase-order.pdf');
   };
@@ -135,7 +161,7 @@ export default function POPreview({ data }: Props) {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8 mb-8">
+        <div className="grid gap-8 md:grid-cols-2 mb-8">
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Ship To</h3>
             <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
