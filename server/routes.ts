@@ -140,12 +140,57 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Purchase Order Routes
+  app.get("/api/purchase-orders", async (req, res) => {
+    try {
+      const allPOs = await db.query.purchaseOrders.findMany({
+        orderBy: [desc(purchaseOrders.createdAt)],
+        with: {
+          items: {
+            with: {
+              style: true,
+            },
+          },
+        },
+      });
+      res.json(allPOs);
+    } catch (error) {
+      console.error('Error fetching purchase orders:', error);
+      res.status(500).json({ error: 'Failed to fetch purchase orders' });
+    }
+  });
+
+  // Check if PO number exists
+  app.get("/api/purchase-orders/check/:poNumber", async (req, res) => {
+    try {
+      const existingPO = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.poNumber, req.params.poNumber),
+      });
+      res.json({ exists: !!existingPO });
+    } catch (error) {
+      console.error('Error checking PO number:', error);
+      res.status(500).json({ error: 'Failed to check PO number' });
+    }
+  });
+
   app.post("/api/purchase-orders", async (req, res) => {
     try {
-      const { items, ...poData } = req.body;
+      const { items, poNumber, ...poData } = req.body;
+
+      // Check for duplicate PO number
+      const existingPO = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.poNumber, poNumber),
+      });
+
+      if (existingPO) {
+        return res.status(400).json({ 
+          error: 'Duplicate PO number',
+          message: 'This PO number already exists. Please use a different number.'
+        });
+      }
 
       // Convert string dates to Date objects
       const processedPoData = {
+        poNumber,
         ...poData,
         orderDate: new Date(poData.orderDate),
         startShipDate: new Date(poData.startShipDate),

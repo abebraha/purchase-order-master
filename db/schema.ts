@@ -14,6 +14,8 @@ export const styles = pgTable("styles", {
 
 export const purchaseOrders = pgTable("purchase_orders", {
   id: serial("id").primaryKey(),
+  poNumber: text("po_number").unique().notNull(),
+  poType: text("po_type").notNull(),
   orderDate: timestamp("order_date").notNull(),
   shipTo: text("ship_to").notNull(),
   billTo: text("bill_to").notNull(),

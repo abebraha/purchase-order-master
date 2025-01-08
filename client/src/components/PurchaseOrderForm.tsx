@@ -40,8 +40,25 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     },
   });
 
+  const checkPONumberMutation = useMutation({
+    mutationFn: async (poNumber: string) => {
+      const res = await fetch(`/api/purchase-orders/check/${poNumber}`);
+      if (!res.ok) {
+        throw new Error("Failed to check PO number");
+      }
+      const data = await res.json();
+      return data.exists;
+    },
+  });
+
   const mutation = useMutation({
     mutationFn: async (data: POFormValues) => {
+      // First check if PO number exists
+      const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
+      if (exists) {
+        throw new Error("This PO number already exists. Please use a different number.");
+      }
+
       const res = await fetch("/api/purchase-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,10 +78,10 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
         description: "Purchase order created successfully.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to create purchase order. Please try again.",
+        description: error.message || "Failed to create purchase order. Please try again.",
         variant: "destructive",
       });
     },

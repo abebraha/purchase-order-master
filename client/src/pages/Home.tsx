@@ -14,9 +14,14 @@ export default function Home() {
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Purchase Order Generator</h1>
-        <Link href="/styles">
-          <Button variant="outline">Manage Style Numbers</Button>
-        </Link>
+        <div className="flex gap-4">
+          <Link href="/purchase-orders">
+            <Button variant="secondary">View PO History</Button>
+          </Link>
+          <Link href="/styles">
+            <Button variant="outline">Manage Style Numbers</Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
