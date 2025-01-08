@@ -87,6 +87,16 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     },
   });
 
+  // Function to handle style selection and auto-fill color and description
+  const handleStyleSelect = (index: number, styleId: number) => {
+    const selectedStyle = styles?.find(style => style.id === styleId);
+    if (selectedStyle) {
+      form.setValue(`items.${index}.styleId`, styleId);
+      form.setValue(`items.${index}.color`, selectedStyle.color);
+      form.setValue(`items.${index}.description`, selectedStyle.description);
+    }
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-6">
@@ -229,7 +239,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
                         label: style.styleNumber
                       })) || []}
                       value={field.value.toString()}
-                      onSelect={(value) => field.onChange(parseInt(value))}
+                      onSelect={(value) => handleStyleSelect(index, parseInt(value))}
                       placeholder="Search style number"
                       emptyMessage="No style numbers found."
                     />
