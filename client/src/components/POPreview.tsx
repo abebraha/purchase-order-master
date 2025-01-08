@@ -28,6 +28,11 @@ export default function POPreview({ data }: Props) {
     // Set custom fonts for a more modern look
     doc.setFont("helvetica");
 
+    // PO Number in top right
+    doc.setFontSize(14);
+    doc.setTextColor(44, 62, 80);
+    doc.text(`PO #: ${data.poNumber}`, 190, 20, { align: "right" });
+
     // Header with company logo and info
     doc.setFontSize(24);
     doc.setTextColor(44, 62, 80); // Dark blue-gray
@@ -117,7 +122,10 @@ export default function POPreview({ data }: Props) {
   return (
     <div className="space-y-6">
       <Card className="p-6 shadow-lg bg-gradient-to-b from-white to-gray-50">
-        <div className="text-center mb-8">
+        <div className="relative text-center mb-8">
+          <div className="absolute right-0 top-0">
+            <p className="text-lg font-semibold text-gray-800">PO #: {data.poNumber}</p>
+          </div>
           <h2 className="text-3xl font-semibold text-gray-800 mb-2">United Intimate Group</h2>
           <div className="space-y-1 text-gray-500">
             <p>1410 Broadway/ Suite 1502, New York, NY, 10018</p>
@@ -191,7 +199,7 @@ export default function POPreview({ data }: Props) {
         </div>
 
         <div className="flex justify-end mt-8">
-          <Button 
+          <Button
             onClick={generatePDF}
             className="bg-gray-900 text-white hover:bg-gray-800 transition-colors"
           >

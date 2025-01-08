@@ -7,6 +7,7 @@ export const StyleFormSchema = z.object({
 });
 
 export const POFormSchema = z.object({
+  poNumber: z.string().min(1, "PO number is required"),
   poType: z.enum(["Bulk", "Regular PO"], {
     required_error: "Please select a PO type",
   }),
