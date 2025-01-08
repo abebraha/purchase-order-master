@@ -14,10 +14,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import type { Style } from "@db/schema";
+import { useState, useRef } from "react";
 
 export default function StyleManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { data: styles } = useQuery<Style[]>({
     queryKey: ["/api/styles"],
   });
@@ -44,6 +48,10 @@ export default function StyleManagement() {
         title: "Import successful",
         description: "Style numbers have been imported successfully.",
       });
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     },
     onError: () => {
       toast({
@@ -54,16 +62,25 @@ export default function StyleManagement() {
     },
   });
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === "text/csv") {
-      importMutation.mutate(file);
-    } else {
-      toast({
-        title: "Invalid file",
-        description: "Please select a CSV file.",
-        variant: "destructive",
-      });
+    if (file) {
+      if (file.type === "text/csv") {
+        setSelectedFile(file);
+      } else {
+        toast({
+          title: "Invalid file",
+          description: "Please select a CSV file.",
+          variant: "destructive",
+        });
+        event.target.value = '';
+      }
+    }
+  };
+
+  const handleUpload = () => {
+    if (selectedFile) {
+      importMutation.mutate(selectedFile);
     }
   };
 
@@ -85,13 +102,22 @@ export default function StyleManagement() {
             <StyleNumberForm />
             <div className="mt-4 border-t pt-4">
               <h3 className="text-sm font-medium mb-2">Import from CSV</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2">
                 <Input
+                  ref={fileInputRef}
                   type="file"
                   accept=".csv"
-                  onChange={handleFileUpload}
+                  onChange={handleFileSelect}
                   disabled={importMutation.isPending}
                 />
+                {selectedFile && (
+                  <Button 
+                    onClick={handleUpload} 
+                    disabled={importMutation.isPending}
+                  >
+                    {importMutation.isPending ? "Uploading..." : "Upload Style Numbers"}
+                  </Button>
+                )}
               </div>
               <p className="text-sm text-muted-foreground mt-2">
                 Upload a CSV file with style numbers. The file should have a "style_number" column.
