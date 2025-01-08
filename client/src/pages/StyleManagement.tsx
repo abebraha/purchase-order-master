@@ -119,9 +119,20 @@ export default function StyleManagement() {
                   </Button>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                Upload a CSV file with style numbers. The file should have a "style_number" column.
-              </p>
+              <div className="text-sm text-muted-foreground mt-2 space-y-1">
+                <p>Upload a CSV file with the following format:</p>
+                <ul className="list-disc list-inside ml-2">
+                  <li>First row should contain column headers</li>
+                  <li>Must have a column named "style_number"</li>
+                  <li>Each row should contain one style number</li>
+                </ul>
+                <p className="mt-2 font-mono text-xs bg-muted p-2 rounded">
+                  Example:<br />
+                  style_number<br />
+                  ST1234<br />
+                  ST5678
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
