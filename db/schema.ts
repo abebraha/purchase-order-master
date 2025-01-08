@@ -6,8 +6,6 @@ import { z } from "zod";
 export const styles = pgTable("styles", {
   id: serial("id").primaryKey(),
   styleNumber: text("style_number").unique().notNull(),
-  color: text("color").notNull(),
-  description: text("description").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -26,6 +24,8 @@ export const poItems = pgTable("po_items", {
   id: serial("id").primaryKey(),
   poId: serial("po_id").references(() => purchaseOrders.id),
   styleId: serial("style_id").references(() => styles.id),
+  color: text("color").notNull(),
+  description: text("description").notNull(),
   quantity: numeric("quantity").notNull(),
   price: numeric("price").notNull(),
 });
