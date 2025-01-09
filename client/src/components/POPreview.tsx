@@ -27,6 +27,14 @@ export default function POPreview({ data }: Props) {
   const totalQuantity = data.items.reduce((sum, item) => sum + item.quantity, 0);
   const totalCost = data.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
+  // Format number with commas and optional decimal places
+  const formatNumber = (num: number, decimals = 0) => {
+    return num.toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+  };
+
   const generatePDF = () => {
     const doc = new jsPDF();
 
@@ -99,9 +107,9 @@ export default function POPreview({ data }: Props) {
         style?.styleNumber || '',
         item.color || '',
         item.description || '',
-        item.quantity.toString(),
-        `$${item.price.toFixed(2)}`,
-        `$${(item.quantity * item.price).toFixed(2)}`,
+        formatNumber(item.quantity),
+        `$${formatNumber(item.price, 2)}`,
+        `$${formatNumber(item.quantity * item.price, 2)}`,
       ];
     });
 
@@ -140,8 +148,8 @@ export default function POPreview({ data }: Props) {
 
     doc.setFontSize(11);
     doc.setTextColor(44, 62, 80);
-    doc.text(`Total Quantity: ${totalQuantity}`, width - 75, finalY + 8);
-    doc.text(`Total Cost: $${totalCost.toFixed(2)}`, width - 75, finalY + 18);
+    doc.text(`Total Quantity: ${formatNumber(totalQuantity)}`, width - 75, finalY + 8);
+    doc.text(`Total Cost: $${formatNumber(totalCost, 2)}`, width - 75, finalY + 18);
 
     doc.save('purchase-order.pdf');
   };
@@ -215,9 +223,9 @@ export default function POPreview({ data }: Props) {
                     <TableCell className="font-medium">{style?.styleNumber}</TableCell>
                     <TableCell>{item.color}</TableCell>
                     <TableCell>{item.description}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell className="text-right">${item.price.toFixed(2)}</TableCell>
-                    <TableCell className="text-right">${(item.quantity * item.price).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">{formatNumber(item.quantity)}</TableCell>
+                    <TableCell className="text-right">${formatNumber(item.price, 2)}</TableCell>
+                    <TableCell className="text-right">${formatNumber(item.quantity * item.price, 2)}</TableCell>
                   </TableRow>
                 );
               })}
@@ -225,9 +233,9 @@ export default function POPreview({ data }: Props) {
             <TableFooter className="bg-gray-50">
               <TableRow>
                 <TableCell colSpan={3} className="font-medium text-right">Totals</TableCell>
-                <TableCell className="text-right font-medium">{totalQuantity}</TableCell>
+                <TableCell className="text-right font-medium">{formatNumber(totalQuantity)}</TableCell>
                 <TableCell className="text-right font-medium"></TableCell>
-                <TableCell className="text-right font-medium">${totalCost.toFixed(2)}</TableCell>
+                <TableCell className="text-right font-medium">${formatNumber(totalCost, 2)}</TableCell>
               </TableRow>
             </TableFooter>
           </Table>
