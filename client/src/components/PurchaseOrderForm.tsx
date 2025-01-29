@@ -54,6 +54,8 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
   const mutation = useMutation({
     mutationFn: async (data: POFormValues) => {
+      console.log("Submitting form data:", data);
+
       // First check if PO number exists
       const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
       if (exists) {
@@ -67,12 +69,14 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       });
 
       if (!res.ok) {
-        throw new Error("Failed to create purchase order");
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to create purchase order");
       }
 
       return res.json();
     },
     onSuccess: (data) => {
+      console.log("Purchase order created successfully:", data);
       onSubmit(form.getValues());
       toast({
         title: "Success",
@@ -80,6 +84,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       });
     },
     onError: (error: Error) => {
+      console.error("Error creating purchase order:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to create purchase order. Please try again.",
@@ -98,9 +103,20 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     }
   };
 
+  const onFormSubmit = async (data: POFormValues) => {
+    console.log("Form submitted with data:", data);
+    console.log("Form validation errors:", form.formState.errors);
+
+    try {
+      await mutation.mutateAsync(data);
+    } catch (error) {
+      console.error("Mutation error:", error);
+    }
+  };
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
@@ -151,6 +167,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
             )}
           />
         </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
@@ -173,6 +190,23 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
               </FormItem>
             )}
           />
+
+          <FormField
+            control={form.control}
+            name="billTo"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Bill To</FormLabel>
+                <FormControl>
+                  <Textarea {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
             name="shipTo"
@@ -187,6 +221,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
             )}
           />
         </div>
+
         <div className="grid gap-4 md:grid-cols-3">
           <FormField
             control={form.control}
@@ -329,7 +364,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
             Add Item
           </Button>
           <Button type="submit" disabled={mutation.isPending}>
-            Generate Purchase Order
+            {mutation.isPending ? "Generating..." : "Generate Purchase Order"}
           </Button>
         </div>
       </form>
