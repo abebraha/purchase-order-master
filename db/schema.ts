@@ -21,6 +21,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   billTo: text("bill_to").notNull(),
   startShipDate: timestamp("start_ship_date").notNull(),
   cancelDate: timestamp("cancel_date").notNull(),
+  terms: text("terms").notNull().default('Net 30'),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -31,6 +31,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     defaultValues: {
       poNumber: "",
       poType: "Regular PO",
+      terms: "Net 30",
       orderDate: new Date(),
       shipTo: "",
       billTo: "",
@@ -117,33 +118,20 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
           <FormField
             control={form.control}
-            name="poType"
+            name="terms"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>PO Type</FormLabel>
+                <FormLabel>Payment Terms</FormLabel>
                 <FormControl>
-                  <RadioGroup
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                    className="flex space-x-4"
+                  <select
+                    {...field}
+                    className="w-full px-3 py-2 border rounded-md"
                   >
-                    <FormItem className="flex items-center space-x-2">
-                      <FormControl>
-                        <RadioGroupItem value="Regular PO" />
-                      </FormControl>
-                      <FormLabel className="font-normal">
-                        Regular PO
-                      </FormLabel>
-                    </FormItem>
-                    <FormItem className="flex items-center space-x-2">
-                      <FormControl>
-                        <RadioGroupItem value="Bulk" />
-                      </FormControl>
-                      <FormLabel className="font-normal">
-                        Bulk
-                      </FormLabel>
-                    </FormItem>
-                  </RadioGroup>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </FormControl>
                 <FormMessage />
               </FormItem>

@@ -11,6 +11,9 @@ export const POFormSchema = z.object({
   poType: z.enum(["Bulk", "Regular PO"], {
     required_error: "Please select a PO type",
   }),
+  terms: z.enum(["Net 30", "Net 45", "Net 60", "Other"], {
+    required_error: "Please select payment terms",
+  }),
   orderDate: z.date(),
   shipTo: z.string().min(1, "Ship to address is required"),
   billTo: z.string().min(1, "Bill to address is required"),
