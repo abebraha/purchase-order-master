@@ -118,6 +118,42 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
           <FormField
             control={form.control}
+            name="poType"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>PO Type</FormLabel>
+                <FormControl>
+                  <RadioGroup
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                    className="flex space-x-4"
+                  >
+                    <FormItem className="flex items-center space-x-2">
+                      <FormControl>
+                        <RadioGroupItem value="Regular PO" />
+                      </FormControl>
+                      <FormLabel className="font-normal">
+                        Regular PO
+                      </FormLabel>
+                    </FormItem>
+                    <FormItem className="flex items-center space-x-2">
+                      <FormControl>
+                        <RadioGroupItem value="Bulk" />
+                      </FormControl>
+                      <FormLabel className="font-normal">
+                        Bulk
+                      </FormLabel>
+                    </FormItem>
+                  </RadioGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField
+            control={form.control}
             name="terms"
             render={({ field }) => (
               <FormItem>
@@ -137,8 +173,6 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
               </FormItem>
             )}
           />
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
             name="shipTo"
@@ -152,22 +186,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
               </FormItem>
             )}
           />
-
-          <FormField
-            control={form.control}
-            name="billTo"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Bill To</FormLabel>
-                <FormControl>
-                  <Textarea {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
         </div>
-
         <div className="grid gap-4 md:grid-cols-3">
           <FormField
             control={form.control}
