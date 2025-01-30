@@ -225,9 +225,15 @@ export function registerRoutes(app: Express): Server {
       const newPO = await db.transaction(async (tx) => {
         const [po] = await tx.insert(purchaseOrders).values(processedPoData).returning();
 
+        // Process items, handling both existing styles and manual entries
         const poItemsData = items.map((item: any) => ({
           poId: po.id,
-          ...item,
+          styleId: item.styleId === 0 ? null : item.styleId, // Set to null for manual entries
+          manualStyleNumber: item.manualStyleNumber,
+          color: item.color,
+          description: item.description,
+          quantity: item.quantity,
+          price: item.price
         }));
 
         await tx.insert(poItems).values(poItemsData);
