@@ -130,14 +130,17 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
   const handleStyleSelect = (index: number, value: string) => {
     const selectedStyle = styles?.find(style => style.styleNumber === value);
 
+    // Whether it's a selected style or manual entry, update the style number
+    form.setValue(`items.${index}.manualStyleNumber`, value);
+
     if (selectedStyle) {
+      // If it matches an existing style, use its data
       form.setValue(`items.${index}.styleId`, selectedStyle.id);
-      form.setValue(`items.${index}.manualStyleNumber`, selectedStyle.styleNumber);
       form.setValue(`items.${index}.color`, selectedStyle.color || '');
       form.setValue(`items.${index}.description`, selectedStyle.description || '');
     } else {
+      // For manual entry, just set the style number and keep styleId as 0
       form.setValue(`items.${index}.styleId`, 0);
-      form.setValue(`items.${index}.manualStyleNumber`, value);
     }
   };
 
@@ -354,18 +357,21 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
                     <FormControl>
-                      <select
-                        className="w-full px-3 py-2 border rounded-md"
-                        value={field.value}
-                        onChange={(e) => handleStyleSelect(index, e.target.value)}
-                      >
-                        <option value="">Select or type style number</option>
-                        {styles?.map((style) => (
-                          <option key={style.id} value={style.styleNumber}>
-                            {style.styleNumber}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <Input
+                          {...field}
+                          list={`style-options-${index}`}
+                          placeholder="Enter or select style number"
+                          onChange={(e) => handleStyleSelect(index, e.target.value)}
+                        />
+                        <datalist id={`style-options-${index}`}>
+                          {styles?.map((style) => (
+                            <option key={style.id} value={style.styleNumber}>
+                              {style.styleNumber}
+                            </option>
+                          ))}
+                        </datalist>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
