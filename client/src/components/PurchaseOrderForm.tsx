@@ -164,42 +164,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
     }
   };
 
-  const handleStyleSelect = async (index: number, value: string) => {
-    const selectedStyle = styles?.find(style => style.styleNumber === value);
-
-    if (!selectedStyle && value.trim()) {
-      // Show confirmation dialog
-      const shouldAdd = window.confirm(
-        `Style number "${value}" doesn't exist in the database. Would you like to add it now?`
-      );
-
-      if (shouldAdd) {
-        try {
-          const newStyle = await addStyleMutation.mutateAsync(value);
-          // Update form with the new style's data
-          form.setValue(`items.${index}.styleId`, newStyle.id);
-          form.setValue(`items.${index}.manualStyleNumber`, newStyle.styleNumber);
-          return;
-        } catch (error) {
-          console.error("Failed to add style:", error);
-          // If style creation fails, fall back to manual entry
-        }
-      }
-    }
-
-    // Whether it's a selected style or manual entry, update the style number
-    form.setValue(`items.${index}.manualStyleNumber`, value);
-
-    if (selectedStyle) {
-      // If it matches an existing style, use its data
-      form.setValue(`items.${index}.styleId`, selectedStyle.id);
-      form.setValue(`items.${index}.color`, selectedStyle.color || '');
-      form.setValue(`items.${index}.description`, selectedStyle.description || '');
-    } else {
-      // For manual entry, just set the style number and keep styleId as 0
-      form.setValue(`items.${index}.styleId`, 0);
-    }
-  };
 
   // Helper function to format date for input
   const formatDateForInput = (date: Date | null | undefined) => {
@@ -407,6 +371,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
           {form.watch("items").map((item, index) => (
             <div key={index} className="grid gap-4 md:grid-cols-6 items-start p-4 border rounded-lg">
+              {/* Style Number field with Add button */}
               <FormField
                 control={form.control}
                 name={`items.${index}.manualStyleNumber`}
@@ -414,12 +379,24 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
                     <FormControl>
-                      <div className="relative">
+                      <div className="relative flex gap-2">
                         <Input
                           {...field}
                           list={`style-options-${index}`}
                           placeholder="Enter or select style number"
-                          onChange={(e) => handleStyleSelect(index, e.target.value)}
+                          onChange={(e) => {
+                            field.onChange(e.target.value);
+                            const style = styles?.find(s => s.styleNumber === e.target.value);
+                            if (style) {
+                              // If style exists, update the form with its data
+                              form.setValue(`items.${index}.styleId`, style.id);
+                              form.setValue(`items.${index}.color`, style.color || '');
+                              form.setValue(`items.${index}.description`, style.description || '');
+                            } else {
+                              // Reset styleId if no matching style found
+                              form.setValue(`items.${index}.styleId`, 0);
+                            }
+                          }}
                         />
                         <datalist id={`style-options-${index}`}>
                           {styles?.map((style) => (
@@ -428,6 +405,26 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                             </option>
                           ))}
                         </datalist>
+                        {field.value && !styles?.find(s => s.styleNumber === field.value) && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={async () => {
+                              try {
+                                const newStyle = await addStyleMutation.mutateAsync(field.value);
+                                form.setValue(`items.${index}.styleId`, newStyle.id);
+                                form.setValue(`items.${index}.color`, newStyle.color || '');
+                                form.setValue(`items.${index}.description`, newStyle.description || '');
+                              } catch (error) {
+                                console.error("Failed to add style:", error);
+                              }
+                            }}
+                          >
+                            Add Style to Database
+                          </Button>
+                        )}
                       </div>
                     </FormControl>
                     <FormMessage />
