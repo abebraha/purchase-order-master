@@ -43,11 +43,13 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
   const checkPONumberMutation = useMutation({
     mutationFn: async (poNumber: string) => {
-      const res = await fetch(`/api/purchase-orders/check/${poNumber}`);
+      console.log("Checking PO number:", poNumber);
+      const res = await fetch(`/api/purchase-orders/check/${encodeURIComponent(poNumber)}`);
       if (!res.ok) {
-        throw new Error("Failed to check PO number");
+        throw new Error("Failed to check PO number. Please try again.");
       }
       const data = await res.json();
+      console.log("PO check response:", data);
       return data.exists;
     },
   });
@@ -56,24 +58,29 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     mutationFn: async (data: POFormValues) => {
       console.log("Submitting form data:", data);
 
-      // First check if PO number exists
-      const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
-      if (exists) {
-        throw new Error("This PO number already exists. Please use a different number.");
+      try {
+        // First check if PO number exists
+        const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
+        if (exists) {
+          throw new Error("This PO number already exists. Please use a different number.");
+        }
+
+        const res = await fetch("/api/purchase-orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.message || "Failed to create purchase order");
+        }
+
+        return res.json();
+      } catch (error) {
+        console.error("Error in mutation:", error);
+        throw error;
       }
-
-      const res = await fetch("/api/purchase-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "Failed to create purchase order");
-      }
-
-      return res.json();
     },
     onSuccess: (data) => {
       console.log("Purchase order created successfully:", data);
@@ -93,6 +100,20 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
     },
   });
 
+  const onFormSubmit = async (data: POFormValues) => {
+    console.log("Form submitted with data:", data);
+    if (Object.keys(form.formState.errors).length > 0) {
+      console.log("Form validation errors:", form.formState.errors);
+      return;
+    }
+
+    try {
+      await mutation.mutateAsync(data);
+    } catch (error) {
+      console.error("Form submission error:", error);
+    }
+  };
+
   // Function to handle style selection and auto-fill color and description
   const handleStyleSelect = (index: number, styleId: number) => {
     const selectedStyle = styles?.find(style => style.id === styleId);
@@ -100,17 +121,6 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       form.setValue(`items.${index}.styleId`, styleId);
       form.setValue(`items.${index}.color`, selectedStyle.color);
       form.setValue(`items.${index}.description`, selectedStyle.description);
-    }
-  };
-
-  const onFormSubmit = async (data: POFormValues) => {
-    console.log("Form submitted with data:", data);
-    console.log("Form validation errors:", form.formState.errors);
-
-    try {
-      await mutation.mutateAsync(data);
-    } catch (error) {
-      console.error("Mutation error:", error);
     }
   };
 

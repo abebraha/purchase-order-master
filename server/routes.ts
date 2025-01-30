@@ -162,13 +162,18 @@ export function registerRoutes(app: Express): Server {
   // Check if PO number exists
   app.get("/api/purchase-orders/check/:poNumber", async (req, res) => {
     try {
+      console.log("Checking PO number:", req.params.poNumber);
       const existingPO = await db.query.purchaseOrders.findFirst({
         where: eq(purchaseOrders.poNumber, req.params.poNumber),
       });
+      console.log("Existing PO check result:", !!existingPO);
       res.json({ exists: !!existingPO });
     } catch (error) {
       console.error('Error checking PO number:', error);
-      res.status(500).json({ error: 'Failed to check PO number' });
+      res.status(500).json({ 
+        error: 'Failed to check PO number',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
