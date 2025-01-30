@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -10,6 +11,14 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -26,6 +35,7 @@ interface Props {
 
 export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'create' }: Props) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: styles } = useQuery<Style[]>({ queryKey: ["/api/styles"] });
 
   // Convert string dates to Date objects for the form
@@ -48,8 +58,35 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
-      dueDate: new Date(),
       items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" }],
+    },
+  });
+
+  const addStyleMutation = useMutation({
+    mutationFn: async (styleNumber: string) => {
+      const res = await fetch("/api/styles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ styleNumber }),
+      });
+      if (!res.ok) {
+        throw new Error("Failed to create style");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/styles"] });
+      toast({
+        title: "Success",
+        description: "Style number added to database",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -127,8 +164,28 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
     }
   };
 
-  const handleStyleSelect = (index: number, value: string) => {
+  const handleStyleSelect = async (index: number, value: string) => {
     const selectedStyle = styles?.find(style => style.styleNumber === value);
+
+    if (!selectedStyle && value.trim()) {
+      // Show confirmation dialog
+      const shouldAdd = window.confirm(
+        `Style number "${value}" doesn't exist in the database. Would you like to add it now?`
+      );
+
+      if (shouldAdd) {
+        try {
+          const newStyle = await addStyleMutation.mutateAsync(value);
+          // Update form with the new style's data
+          form.setValue(`items.${index}.styleId`, newStyle.id);
+          form.setValue(`items.${index}.manualStyleNumber`, newStyle.styleNumber);
+          return;
+        } catch (error) {
+          console.error("Failed to add style:", error);
+          // If style creation fails, fall back to manual entry
+        }
+      }
+    }
 
     // Whether it's a selected style or manual entry, update the style number
     form.setValue(`items.${index}.manualStyleNumber`, value);
