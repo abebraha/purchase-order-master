@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { addDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -12,6 +13,13 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Combobox } from "@/components/ui/combobox";
 import { POFormSchema, type POFormValues } from "@/lib/types";
@@ -21,6 +29,13 @@ import type { Style } from "@db/schema";
 interface Props {
   onSubmit: (data: POFormValues) => void;
 }
+
+const PAYMENT_TERMS = {
+  "Net 30": 30,
+  "Net 45": 45,
+  "Net 60": 60,
+  "Other": 0
+};
 
 export default function PurchaseOrderForm({ onSubmit }: Props) {
   const { toast } = useToast();
@@ -65,10 +80,19 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
           throw new Error("This PO number already exists. Please use a different number.");
         }
 
+        // Calculate payment due date based on terms
+        const daysToAdd = PAYMENT_TERMS[data.terms as keyof typeof PAYMENT_TERMS];
+        const paymentDueDate = daysToAdd ? addDays(new Date(data.orderDate), daysToAdd) : null;
+
+        const submissionData = {
+          ...data,
+          paymentDueDate,
+        };
+
         const res = await fetch("/api/purchase-orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          body: JSON.stringify(submissionData),
         });
 
         if (!res.ok) {
@@ -185,17 +209,19 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Payment Terms</FormLabel>
-                <FormControl>
-                  <select
-                    {...field}
-                    className="w-full px-3 py-2 border rounded-md"
-                  >
-                    <option value="Net 30">Net 30</option>
-                    <option value="Net 45">Net 45</option>
-                    <option value="Net 60">Net 60</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </FormControl>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment terms" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="Net 30">Net 30</SelectItem>
+                    <SelectItem value="Net 45">Net 45</SelectItem>
+                    <SelectItem value="Net 60">Net 60</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
