@@ -40,6 +40,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
+      dueDate: new Date(), // Added dueDate
       items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" }],
     },
   });
@@ -69,7 +70,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
           }
         }
 
-        const url = mode === 'edit' 
+        const url = mode === 'edit'
           ? `/api/purchase-orders/${defaultValues?.id}`
           : "/api/purchase-orders";
 
@@ -126,16 +127,16 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
   // Function to handle style selection and auto-fill color and description
   const handleStyleSelect = (index: number, value: string) => {
-    const styleId = parseInt(value);
-    const selectedStyle = styles?.find(style => style.id === styleId);
+    const selectedStyle = styles?.find(style => style.styleNumber === value);
 
     if (selectedStyle) {
-      form.setValue(`items.${index}.styleId`, styleId);
+      // If the style exists in our system
+      form.setValue(`items.${index}.styleId`, selectedStyle.id);
+      form.setValue(`items.${index}.manualStyleNumber`, selectedStyle.styleNumber);
       form.setValue(`items.${index}.color`, selectedStyle.color || '');
       form.setValue(`items.${index}.description`, selectedStyle.description || '');
-      form.setValue(`items.${index}.manualStyleNumber`, selectedStyle.styleNumber);
     } else {
-      // Handle manual style number entry
+      // For manual style number entry
       form.setValue(`items.${index}.styleId`, 0);
       form.setValue(`items.${index}.manualStyleNumber`, value);
     }
@@ -339,7 +340,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
             </Button>
           </div>
 
-          {form.watch("items").map((_, index) => (
+          {form.watch("items").map((item, index) => (
             <div key={index} className="grid gap-4 md:grid-cols-6 items-start p-4 border rounded-lg">
               <FormField
                 control={form.control}
@@ -348,19 +349,18 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
                     <FormControl>
-                      <Combobox
-                        items={[
-                          ...(styles?.map((style) => ({
-                            value: style.id.toString(),
-                            label: style.styleNumber
-                          })) || []),
-                        ]}
+                      <select
+                        className="w-full px-3 py-2 border rounded-md"
                         value={field.value}
-                        onSelect={(value) => handleStyleSelect(index, value)}
-                        placeholder="Enter or select style number"
-                        emptyMessage="Type to add a custom style number"
-                        allowCustomValue
-                      />
+                        onChange={(e) => handleStyleSelect(index, e.target.value)}
+                      >
+                        <option value="">Select or type style number</option>
+                        {styles?.map((style) => (
+                          <option key={style.id} value={style.styleNumber}>
+                            {style.styleNumber}
+                          </option>
+                        ))}
+                      </select>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -405,7 +405,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                       <Input
                         type="number"
                         {...field}
-                        onChange={e => field.onChange(parseInt(e.target.value))}
+                        onChange={e => field.onChange(parseInt(e.target.value, 10))}
                       />
                     </FormControl>
                     <FormMessage />
