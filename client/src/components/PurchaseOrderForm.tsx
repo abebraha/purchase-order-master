@@ -11,14 +11,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -44,7 +36,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
     orderDate: new Date(defaultValues.orderDate),
     startShipDate: new Date(defaultValues.startShipDate),
     cancelDate: new Date(defaultValues.cancelDate),
-    dueDate: new Date(defaultValues.dueDate || Date.now()),
   } : undefined;
 
   const form = useForm<POFormValues>({
@@ -163,7 +154,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       console.error("Form submission error:", error);
     }
   };
-
 
   // Helper function to format date for input
   const formatDateForInput = (date: Date | null | undefined) => {
@@ -371,7 +361,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
           {form.watch("items").map((item, index) => (
             <div key={index} className="grid gap-4 md:grid-cols-6 items-start p-4 border rounded-lg">
-              {/* Style Number field with Add button */}
               <FormField
                 control={form.control}
                 name={`items.${index}.manualStyleNumber`}
@@ -379,53 +368,51 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
                     <FormControl>
-                      <div className="relative flex gap-2">
-                        <Input
-                          {...field}
-                          list={`style-options-${index}`}
-                          placeholder="Enter or select style number"
-                          onChange={(e) => {
-                            field.onChange(e.target.value);
-                            const style = styles?.find(s => s.styleNumber === e.target.value);
+                      <Input
+                        {...field}
+                        list={`style-options-${index}`}
+                        placeholder="Enter or select style number"
+                        onChange={async (e) => {
+                          const value = e.target.value;
+                          field.onChange(value);
+
+                          // Check if this is the "Add to Database" option
+                          if (value.startsWith('ADD_TO_DB:')) {
+                            const styleNumber = value.replace('ADD_TO_DB:', '').trim();
+                            try {
+                              const newStyle = await addStyleMutation.mutateAsync(styleNumber);
+                              form.setValue(`items.${index}.styleId`, newStyle.id);
+                              form.setValue(`items.${index}.manualStyleNumber`, newStyle.styleNumber);
+                              form.setValue(`items.${index}.color`, newStyle.color || '');
+                              form.setValue(`items.${index}.description`, newStyle.description || '');
+                            } catch (error) {
+                              console.error("Failed to add style:", error);
+                            }
+                          } else {
+                            // Handle regular style selection
+                            const style = styles?.find(s => s.styleNumber === value);
                             if (style) {
-                              // If style exists, update the form with its data
                               form.setValue(`items.${index}.styleId`, style.id);
                               form.setValue(`items.${index}.color`, style.color || '');
                               form.setValue(`items.${index}.description`, style.description || '');
                             } else {
-                              // Reset styleId if no matching style found
                               form.setValue(`items.${index}.styleId`, 0);
                             }
-                          }}
-                        />
-                        <datalist id={`style-options-${index}`}>
-                          {styles?.map((style) => (
-                            <option key={style.id} value={style.styleNumber}>
-                              {style.styleNumber}
-                            </option>
-                          ))}
-                        </datalist>
+                          }
+                        }}
+                      />
+                      <datalist id={`style-options-${index}`}>
+                        {styles?.map((style) => (
+                          <option key={style.id} value={style.styleNumber}>
+                            {style.styleNumber}
+                          </option>
+                        ))}
                         {field.value && !styles?.find(s => s.styleNumber === field.value) && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="whitespace-nowrap"
-                            onClick={async () => {
-                              try {
-                                const newStyle = await addStyleMutation.mutateAsync(field.value);
-                                form.setValue(`items.${index}.styleId`, newStyle.id);
-                                form.setValue(`items.${index}.color`, newStyle.color || '');
-                                form.setValue(`items.${index}.description`, newStyle.description || '');
-                              } catch (error) {
-                                console.error("Failed to add style:", error);
-                              }
-                            }}
-                          >
-                            Add Style to Database
-                          </Button>
+                          <option value={`ADD_TO_DB:${field.value}`}>
+                            Add "{field.value}" to Database
+                          </option>
                         )}
-                      </div>
+                      </datalist>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
