@@ -179,7 +179,7 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/purchase-orders", async (req, res) => {
     try {
-      const { items, poNumber, ...poData } = req.body;
+      const { items, poNumber, terms, orderDate, ...poData } = req.body;
 
       // Check for duplicate PO number
       const existingPO = await db.query.purchaseOrders.findFirst({
@@ -193,11 +193,31 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Convert string dates to Date objects
+      // Calculate due date based on terms
+      const orderDateObj = new Date(orderDate);
+      let dueDate = new Date(orderDateObj);
+
+      switch (terms) {
+        case 'Net 30':
+          dueDate.setDate(dueDate.getDate() + 30);
+          break;
+        case 'Net 45':
+          dueDate.setDate(dueDate.getDate() + 45);
+          break;
+        case 'Net 60':
+          dueDate.setDate(dueDate.getDate() + 60);
+          break;
+        default:
+          dueDate.setDate(dueDate.getDate() + 30); // Default to Net 30
+      }
+
+      // Convert string dates to Date objects and add due date
       const processedPoData = {
         poNumber,
+        terms,
+        dueDate,
         ...poData,
-        orderDate: new Date(poData.orderDate),
+        orderDate: new Date(orderDate),
         startShipDate: new Date(poData.startShipDate),
         cancelDate: new Date(poData.cancelDate)
       };

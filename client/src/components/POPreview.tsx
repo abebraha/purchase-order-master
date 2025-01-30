@@ -77,8 +77,11 @@ export default function POPreview({ data }: Props) {
     doc.setTextColor(44, 62, 80);
     doc.text(`PO Type: ${data.poType}`, 25, 82);
     doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 25, 89);
+    doc.text(`Payment Terms: ${data.terms}`, 25, 96); // Added Payment Terms
     doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 115, 82);
     doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 115, 89);
+    doc.text(`Due Date: ${format(data.dueDate, "MMM d, yyyy")}`, 115, 96); //Added Due Date
+
 
     // Address section with card-like design
     doc.setFillColor(255, 255, 255);
@@ -184,10 +187,14 @@ export default function POPreview({ data }: Props) {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-4 gap-8 mb-8">
+        <div className="grid md:grid-cols-5 gap-8 mb-8"> {/* Changed to 5 columns */}
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">PO Type</h3>
             <p className="text-gray-700">{data.poType}</p>
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Payment Terms</h3>
+            <p className="text-gray-700">{data.terms}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Order Date</h3>
