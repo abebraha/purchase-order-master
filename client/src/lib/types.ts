@@ -21,6 +21,7 @@ export const POFormSchema = z.object({
   cancelDate: z.date(),
   items: z.array(z.object({
     styleId: z.number(),
+    manualStyleNumber: z.string(),
     color: z.string().min(1, "Color is required"),
     description: z.string().min(1, "Description is required"),
     quantity: z.number().min(1, "Quantity must be at least 1"),
@@ -29,4 +30,6 @@ export const POFormSchema = z.object({
 });
 
 export type StyleFormValues = z.infer<typeof StyleFormSchema>;
-export type POFormValues = z.infer<typeof POFormSchema>;
+export type POFormValues = z.infer<typeof POFormSchema> & {
+  id?: number;
+};

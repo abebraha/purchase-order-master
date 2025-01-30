@@ -21,15 +21,17 @@ import type { Style } from "@db/schema";
 
 interface Props {
   onSubmit: (data: POFormValues) => void;
+  defaultValues?: POFormValues;
+  mode?: 'create' | 'edit';
 }
 
-export default function PurchaseOrderForm({ onSubmit }: Props) {
+export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'create' }: Props) {
   const { toast } = useToast();
   const { data: styles } = useQuery<Style[]>({ queryKey: ["/api/styles"] });
 
   const form = useForm<POFormValues>({
     resolver: zodResolver(POFormSchema),
-    defaultValues: {
+    defaultValues: defaultValues || {
       poNumber: "",
       poType: "Regular PO",
       terms: "Net 30",
@@ -38,19 +40,18 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
-      items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "" }],
+      items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" }],
     },
   });
 
   const checkPONumberMutation = useMutation({
     mutationFn: async (poNumber: string) => {
-      console.log("Checking PO number:", poNumber);
+      if (mode === 'edit') return false; // Skip check for edit mode
       const res = await fetch(`/api/purchase-orders/check/${encodeURIComponent(poNumber)}`);
       if (!res.ok) {
         throw new Error("Failed to check PO number. Please try again.");
       }
       const data = await res.json();
-      console.log("PO check response:", data);
       return data.exists;
     },
   });
@@ -60,21 +61,29 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       console.log("Submitting form data:", data);
 
       try {
-        // First check if PO number exists
-        const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
-        if (exists) {
-          throw new Error("This PO number already exists. Please use a different number.");
+        // Check PO number only for new POs
+        if (mode === 'create') {
+          const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
+          if (exists) {
+            throw new Error("This PO number already exists. Please use a different number.");
+          }
         }
 
-        const res = await fetch("/api/purchase-orders", {
-          method: "POST",
+        const url = mode === 'edit' 
+          ? `/api/purchase-orders/${defaultValues?.id}`
+          : "/api/purchase-orders";
+
+        const method = mode === 'edit' ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
 
         if (!res.ok) {
           const errorData = await res.json();
-          throw new Error(errorData.message || "Failed to create purchase order");
+          throw new Error(errorData.message || "Failed to save purchase order");
         }
 
         return res.json();
@@ -84,18 +93,18 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
       }
     },
     onSuccess: (data) => {
-      console.log("Purchase order created successfully:", data);
+      console.log("Purchase order saved successfully:", data);
       onSubmit(form.getValues());
       toast({
         title: "Success",
-        description: "Purchase order created successfully.",
+        description: `Purchase order ${mode === 'edit' ? 'updated' : 'created'} successfully.`,
       });
     },
     onError: (error: Error) => {
-      console.error("Error creating purchase order:", error);
+      console.error("Error saving purchase order:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to create purchase order. Please try again.",
+        description: error.message || "Failed to save purchase order. Please try again.",
         variant: "destructive",
       });
     },
@@ -116,12 +125,19 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
   };
 
   // Function to handle style selection and auto-fill color and description
-  const handleStyleSelect = (index: number, styleId: number) => {
+  const handleStyleSelect = (index: number, value: string) => {
+    const styleId = parseInt(value);
     const selectedStyle = styles?.find(style => style.id === styleId);
+
     if (selectedStyle) {
       form.setValue(`items.${index}.styleId`, styleId);
-      form.setValue(`items.${index}.color`, selectedStyle.color);
-      form.setValue(`items.${index}.description`, selectedStyle.description);
+      form.setValue(`items.${index}.color`, selectedStyle.color || '');
+      form.setValue(`items.${index}.description`, selectedStyle.description || '');
+      form.setValue(`items.${index}.manualStyleNumber`, selectedStyle.styleNumber);
+    } else {
+      // Handle manual style number entry
+      form.setValue(`items.${index}.styleId`, 0);
+      form.setValue(`items.${index}.manualStyleNumber`, value);
     }
   };
 
@@ -139,7 +155,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
                 <FormItem>
                   <FormLabel>PO Number</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Enter PO number" />
+                    <Input {...field} placeholder="Enter PO number" disabled={mode === 'edit'} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -304,7 +320,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
         <Separator />
 
-        {/* Items Section */}
+        {/* Items Section with manual style number support */}
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Order Items</h3>
@@ -315,7 +331,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
                 const items = form.getValues("items");
                 form.setValue("items", [
                   ...items,
-                  { styleId: 0, quantity: 1, price: 0, color: "", description: "" },
+                  { styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" },
                 ]);
               }}
             >
@@ -324,23 +340,26 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
           </div>
 
           {form.watch("items").map((_, index) => (
-            <div key={index} className="grid gap-4 md:grid-cols-5 items-start p-4 border rounded-lg">
+            <div key={index} className="grid gap-4 md:grid-cols-6 items-start p-4 border rounded-lg">
               <FormField
                 control={form.control}
-                name={`items.${index}.styleId`}
+                name={`items.${index}.manualStyleNumber`}
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
                     <FormControl>
                       <Combobox
-                        items={styles?.map((style) => ({
-                          value: style.id.toString(),
-                          label: style.styleNumber
-                        })) || []}
-                        value={field.value.toString()}
-                        onSelect={(value) => handleStyleSelect(index, parseInt(value))}
-                        placeholder="Search style number"
-                        emptyMessage="No style numbers found."
+                        items={[
+                          ...(styles?.map((style) => ({
+                            value: style.id.toString(),
+                            label: style.styleNumber
+                          })) || []),
+                        ]}
+                        value={field.value}
+                        onSelect={(value) => handleStyleSelect(index, value)}
+                        placeholder="Enter or select style number"
+                        emptyMessage="Type to add a custom style number"
+                        allowCustomValue
                       />
                     </FormControl>
                     <FormMessage />
@@ -412,13 +431,27 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
                   </FormItem>
                 )}
               />
+
+              <Button
+                type="button"
+                variant="destructive"
+                className="mt-8"
+                onClick={() => {
+                  const items = form.getValues("items");
+                  if (items.length > 1) {
+                    form.setValue("items", items.filter((_, i) => i !== index));
+                  }
+                }}
+              >
+                Remove
+              </Button>
             </div>
           ))}
         </div>
 
         <div className="flex justify-end pt-6">
           <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? "Generating..." : "Generate Purchase Order"}
+            {mutation.isPending ? "Saving..." : mode === 'edit' ? "Update Purchase Order" : "Generate Purchase Order"}
           </Button>
         </div>
       </form>
