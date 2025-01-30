@@ -35,6 +35,12 @@ export default function POPreview({ data }: Props) {
     });
   };
 
+  // Get style number - either from linked style or manual entry
+  const getStyleNumber = (item: any) => {
+    const style = styles?.find(s => s.id === item.styleId);
+    return style?.styleNumber || item.manualStyleNumber || '';
+  };
+
   const generatePDF = () => {
     const doc = new jsPDF();
 
@@ -103,11 +109,10 @@ export default function POPreview({ data }: Props) {
       doc.text(line, (width + 15) / 2, 138 + (i * 5));
     });
 
-    // Items table with modern styling
+    // Items table with updated style number handling
     const tableData = data.items.map(item => {
-      const style = styles?.find(s => s.id === item.styleId);
       return [
-        style?.styleNumber || '',
+        getStyleNumber(item),
         item.color || '',
         item.description || '',
         formatNumber(item.quantity),
@@ -224,10 +229,9 @@ export default function POPreview({ data }: Props) {
             </TableHeader>
             <TableBody>
               {data.items.map((item, index) => {
-                const style = styles?.find(s => s.id === item.styleId);
                 return (
                   <TableRow key={index} className="hover:bg-gray-50">
-                    <TableCell className="font-medium">{style?.styleNumber}</TableCell>
+                    <TableCell className="font-medium">{getStyleNumber(item)}</TableCell>
                     <TableCell>{item.color}</TableCell>
                     <TableCell>{item.description}</TableCell>
                     <TableCell className="text-right">{formatNumber(item.quantity)}</TableCell>
