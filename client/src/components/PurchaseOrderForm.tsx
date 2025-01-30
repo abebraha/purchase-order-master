@@ -367,29 +367,17 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Style Number</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        list={`style-options-${index}`}
-                        placeholder="Enter or select style number"
-                        onChange={async (e) => {
-                          const value = e.target.value;
-                          field.onChange(value);
+                    <div className="flex flex-col">
+                      <FormControl>
+                        <Input
+                          {...field}
+                          list={`style-options-${index}`}
+                          placeholder="Enter or select style number"
+                          onChange={async (e) => {
+                            const value = e.target.value;
+                            field.onChange(value);
 
-                          // Check if this is the "Add to Database" option
-                          if (value.startsWith('ADD_TO_DB:')) {
-                            const styleNumber = value.replace('ADD_TO_DB:', '').trim();
-                            try {
-                              const newStyle = await addStyleMutation.mutateAsync(styleNumber);
-                              form.setValue(`items.${index}.styleId`, newStyle.id);
-                              form.setValue(`items.${index}.manualStyleNumber`, newStyle.styleNumber);
-                              form.setValue(`items.${index}.color`, newStyle.color || '');
-                              form.setValue(`items.${index}.description`, newStyle.description || '');
-                            } catch (error) {
-                              console.error("Failed to add style:", error);
-                            }
-                          } else {
-                            // Handle regular style selection
+                            // Handle style selection
                             const style = styles?.find(s => s.styleNumber === value);
                             if (style) {
                               form.setValue(`items.${index}.styleId`, style.id);
@@ -398,9 +386,9 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                             } else {
                               form.setValue(`items.${index}.styleId`, 0);
                             }
-                          }
-                        }}
-                      />
+                          }}
+                        />
+                      </FormControl>
                       <datalist id={`style-options-${index}`}>
                         {styles?.map((style) => (
                           <option key={style.id} value={style.styleNumber}>
@@ -408,12 +396,25 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
                           </option>
                         ))}
                         {field.value && !styles?.find(s => s.styleNumber === field.value) && (
-                          <option value={`ADD_TO_DB:${field.value}`}>
+                          <option
+                            value={field.value}
+                            onClick={async () => {
+                              try {
+                                const newStyle = await addStyleMutation.mutateAsync(field.value);
+                                form.setValue(`items.${index}.styleId`, newStyle.id);
+                                form.setValue(`items.${index}.manualStyleNumber`, newStyle.styleNumber);
+                                form.setValue(`items.${index}.color`, newStyle.color || '');
+                                form.setValue(`items.${index}.description`, newStyle.description || '');
+                              } catch (error) {
+                                console.error("Failed to add style:", error);
+                              }
+                            }}
+                          >
                             Add "{field.value}" to Database
                           </option>
                         )}
                       </datalist>
-                    </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
