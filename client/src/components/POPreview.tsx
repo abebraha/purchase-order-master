@@ -65,7 +65,7 @@ export default function POPreview({ data }: Props) {
     // PO Number with enhanced visibility
     doc.setFontSize(14);
     doc.setTextColor(44, 62, 80);
-    doc.text(`PO #: ${data.poNumber}`, 190, 25, { align: "right" });
+    doc.text(`Purchase Order #${data.poNumber}`, 190, 25, { align: "right" });
 
     // Contact information with improved layout
     doc.setFontSize(10);
@@ -82,12 +82,12 @@ export default function POPreview({ data }: Props) {
     doc.setFontSize(11);
     doc.setTextColor(44, 62, 80);
     doc.text(`PO Type: ${data.poType}`, 25, 82);
-    doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 25, 89);
+    doc.text(`Order Date: ${format(new Date(data.orderDate), "MMMM d, yyyy")}`, 25, 89);
     doc.text(`Payment Terms: ${data.terms}`, 25, 96);
-    doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 115, 82);
-    doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 115, 89);
+    doc.text(`Start Ship: ${format(new Date(data.startShipDate), "MMM d, yyyy")}`, 115, 82);
+    doc.text(`Cancel Date: ${format(new Date(data.cancelDate), "MMM d, yyyy")}`, 115, 89);
     if (data.dueDate) {
-      doc.text(`Due Date: ${format(data.dueDate, "MMM d, yyyy")}`, 115, 96);
+      doc.text(`Due Date: ${format(new Date(data.dueDate), "MMM d, yyyy")}`, 115, 96);
     }
 
     // Address section with card-like design
@@ -158,6 +158,7 @@ export default function POPreview({ data }: Props) {
     doc.text(`Total Quantity: ${formatNumber(totalQuantity)}`, width - 75, finalY + 8);
     doc.text(`Total Cost: $${formatNumber(totalCost, 2)}`, width - 75, finalY + 18);
 
+    // Save with PO number in filename
     doc.save(`PO-${data.poNumber}.pdf`);
   };
 
@@ -202,15 +203,15 @@ export default function POPreview({ data }: Props) {
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Order Date</h3>
-            <p className="text-gray-700">{format(data.orderDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(new Date(data.orderDate), "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Start Ship Date</h3>
-            <p className="text-gray-700">{format(data.startShipDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(new Date(data.startShipDate), "MMMM d, yyyy")}</p>
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Cancel Date</h3>
-            <p className="text-gray-700">{format(data.cancelDate, "MMMM d, yyyy")}</p>
+            <p className="text-gray-700">{format(new Date(data.cancelDate), "MMMM d, yyyy")}</p>
           </div>
         </div>
 
