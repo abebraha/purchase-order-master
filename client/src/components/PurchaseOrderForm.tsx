@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Combobox } from "@/components/ui/combobox";
+import { Separator } from "@/components/ui/separator";
 import { POFormSchema, type POFormValues } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import type { Style } from "@db/schema";
@@ -126,174 +127,134 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="poNumber"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>PO Number</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="Enter PO number" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="terms"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment Terms</FormLabel>
-                <FormControl>
-                  <select
-                    {...field}
-                    className="w-full px-3 py-2 border rounded-md"
-                  >
-                    <option value="Net 30">Net 30</option>
-                    <option value="Net 45">Net 45</option>
-                    <option value="Net 60">Net 60</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-1">
-          <FormField
-            control={form.control}
-            name="poType"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>PO Type</FormLabel>
-                <FormControl>
-                  <RadioGroup
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                    className="flex space-x-4"
-                  >
-                    <FormItem className="flex items-center space-x-2">
-                      <FormControl>
-                        <RadioGroupItem value="Regular PO" />
-                      </FormControl>
-                      <FormLabel className="font-normal">
-                        Regular PO
-                      </FormLabel>
-                    </FormItem>
-                    <FormItem className="flex items-center space-x-2">
-                      <FormControl>
-                        <RadioGroupItem value="Bulk" />
-                      </FormControl>
-                      <FormLabel className="font-normal">
-                        Bulk
-                      </FormLabel>
-                    </FormItem>
-                  </RadioGroup>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="billTo"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Bill To</FormLabel>
-                <FormControl>
-                  <Textarea {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="shipTo"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Ship To</FormLabel>
-                <FormControl>
-                  <Textarea {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <FormField
-            control={form.control}
-            name="orderDate"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Order Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} value={field.value?.toISOString().split('T')[0]} onChange={e => field.onChange(new Date(e.target.value))} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="startShipDate"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Start Ship Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} value={field.value?.toISOString().split('T')[0]} onChange={e => field.onChange(new Date(e.target.value))} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="cancelDate"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Cancel Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} value={field.value?.toISOString().split('T')[0]} onChange={e => field.onChange(new Date(e.target.value))} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        {form.watch("items").map((_, index) => (
-          <div key={index} className="grid gap-4 md:grid-cols-5">
+      <form onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-8">
+        {/* PO Information Section */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Purchase Order Information</h3>
+          <div className="grid gap-6 md:grid-cols-3">
             <FormField
               control={form.control}
-              name={`items.${index}.styleId`}
+              name="poNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Style Number</FormLabel>
+                  <FormLabel>PO Number</FormLabel>
                   <FormControl>
-                    <Combobox
-                      items={styles?.map((style) => ({
-                        value: style.id.toString(),
-                        label: style.styleNumber
-                      })) || []}
-                      value={field.value.toString()}
-                      onSelect={(value) => handleStyleSelect(index, parseInt(value))}
-                      placeholder="Search style number"
-                      emptyMessage="No style numbers found."
+                    <Input {...field} placeholder="Enter PO number" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="poType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>PO Type</FormLabel>
+                  <FormControl>
+                    <RadioGroup
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      className="flex space-x-4"
+                    >
+                      <FormItem className="flex items-center space-x-2">
+                        <FormControl>
+                          <RadioGroupItem value="Regular PO" />
+                        </FormControl>
+                        <FormLabel className="font-normal">Regular PO</FormLabel>
+                      </FormItem>
+                      <FormItem className="flex items-center space-x-2">
+                        <FormControl>
+                          <RadioGroupItem value="Bulk" />
+                        </FormControl>
+                        <FormLabel className="font-normal">Bulk</FormLabel>
+                      </FormItem>
+                    </RadioGroup>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="terms"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Payment Terms</FormLabel>
+                  <FormControl>
+                    <select
+                      {...field}
+                      className="w-full px-3 py-2 border rounded-md"
+                    >
+                      <option value="Net 30">Net 30</option>
+                      <option value="Net 45">Net 45</option>
+                      <option value="Net 60">Net 60</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Address Section */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Addresses</h3>
+          <div className="grid gap-6 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="billTo"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Bill To</FormLabel>
+                  <FormControl>
+                    <Textarea {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="shipTo"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ship To</FormLabel>
+                  <FormControl>
+                    <Textarea {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Dates Section */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Important Dates</h3>
+          <div className="grid gap-6 md:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="orderDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Order Date</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="date"
+                      {...field}
+                      value={field.value?.toISOString().split('T')[0]}
+                      onChange={e => field.onChange(new Date(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -303,12 +264,17 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
             <FormField
               control={form.control}
-              name={`items.${index}.color`}
+              name="startShipDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Color</FormLabel>
+                  <FormLabel>Start Ship Date</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      type="date"
+                      {...field}
+                      value={field.value?.toISOString().split('T')[0]}
+                      onChange={e => field.onChange(new Date(e.target.value))}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -317,62 +283,140 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
             <FormField
               control={form.control}
-              name={`items.${index}.description`}
+              name="cancelDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>Cancel Date</FormLabel>
                   <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name={`items.${index}.quantity`}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Quantity</FormLabel>
-                  <FormControl>
-                    <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name={`items.${index}.price`}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Price</FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" {...field} onChange={e => field.onChange(parseFloat(e.target.value))} />
+                    <Input
+                      type="date"
+                      {...field}
+                      value={field.value?.toISOString().split('T')[0]}
+                      onChange={e => field.onChange(new Date(e.target.value))}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
           </div>
-        ))}
+        </div>
 
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              const items = form.getValues("items");
-              form.setValue("items", [
-                ...items,
-                { styleId: 0, quantity: 1, price: 0, color: "", description: "" },
-              ]);
-            }}
-          >
-            Add Item
-          </Button>
+        <Separator />
+
+        {/* Items Section */}
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold">Order Items</h3>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const items = form.getValues("items");
+                form.setValue("items", [
+                  ...items,
+                  { styleId: 0, quantity: 1, price: 0, color: "", description: "" },
+                ]);
+              }}
+            >
+              Add Item
+            </Button>
+          </div>
+
+          {form.watch("items").map((_, index) => (
+            <div key={index} className="grid gap-4 md:grid-cols-5 items-start p-4 border rounded-lg">
+              <FormField
+                control={form.control}
+                name={`items.${index}.styleId`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Style Number</FormLabel>
+                    <FormControl>
+                      <Combobox
+                        items={styles?.map((style) => ({
+                          value: style.id.toString(),
+                          label: style.styleNumber
+                        })) || []}
+                        value={field.value.toString()}
+                        onSelect={(value) => handleStyleSelect(index, parseInt(value))}
+                        placeholder="Search style number"
+                        emptyMessage="No style numbers found."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name={`items.${index}.color`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Color</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name={`items.${index}.description`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name={`items.${index}.quantity`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Quantity</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        {...field}
+                        onChange={e => field.onChange(parseInt(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name={`items.${index}.price`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Price</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        {...field}
+                        onChange={e => field.onChange(parseFloat(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end pt-6">
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? "Generating..." : "Generate Purchase Order"}
           </Button>
