@@ -23,11 +23,21 @@ export default function PurchaseOrderView() {
       const res = await fetch(`/api/purchase-orders/${id}`, {
         method: 'DELETE',
       });
+
+      // Check if response is ok before trying to parse JSON
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || 'Failed to delete purchase order');
+        // Try to get error message from response
+        try {
+          const errorData = await res.json();
+          throw new Error(errorData.message || 'Failed to delete purchase order');
+        } catch {
+          // If JSON parsing fails, throw generic error
+          throw new Error('Failed to delete purchase order');
+        }
       }
-      return res.json();
+
+      // For successful deletion, we don't need to return any data
+      return true;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/purchase-orders'] });

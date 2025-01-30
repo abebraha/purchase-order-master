@@ -13,7 +13,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Combobox } from "@/components/ui/combobox";
 import { Separator } from "@/components/ui/separator";
 import { POFormSchema, type POFormValues } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -29,9 +28,18 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
   const { toast } = useToast();
   const { data: styles } = useQuery<Style[]>({ queryKey: ["/api/styles"] });
 
+  // Convert string dates to Date objects for the form
+  const formattedDefaultValues = defaultValues ? {
+    ...defaultValues,
+    orderDate: new Date(defaultValues.orderDate),
+    startShipDate: new Date(defaultValues.startShipDate),
+    cancelDate: new Date(defaultValues.cancelDate),
+    dueDate: new Date(defaultValues.dueDate || Date.now()),
+  } : undefined;
+
   const form = useForm<POFormValues>({
     resolver: zodResolver(POFormSchema),
-    defaultValues: defaultValues || {
+    defaultValues: formattedDefaultValues || {
       poNumber: "",
       poType: "Regular PO",
       terms: "Net 30",
@@ -40,14 +48,14 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
-      dueDate: new Date(), // Added dueDate
+      dueDate: new Date(),
       items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" }],
     },
   });
 
   const checkPONumberMutation = useMutation({
     mutationFn: async (poNumber: string) => {
-      if (mode === 'edit') return false; // Skip check for edit mode
+      if (mode === 'edit') return false;
       const res = await fetch(`/api/purchase-orders/check/${encodeURIComponent(poNumber)}`);
       if (!res.ok) {
         throw new Error("Failed to check PO number. Please try again.");
@@ -59,10 +67,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
   const mutation = useMutation({
     mutationFn: async (data: POFormValues) => {
-      console.log("Submitting form data:", data);
-
       try {
-        // Check PO number only for new POs
         if (mode === 'create') {
           const exists = await checkPONumberMutation.mutateAsync(data.poNumber);
           if (exists) {
@@ -94,7 +99,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       }
     },
     onSuccess: (data) => {
-      console.log("Purchase order saved successfully:", data);
       onSubmit(form.getValues());
       toast({
         title: "Success",
@@ -102,7 +106,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       });
     },
     onError: (error: Error) => {
-      console.error("Error saving purchase order:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to save purchase order. Please try again.",
@@ -112,7 +115,6 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
   });
 
   const onFormSubmit = async (data: POFormValues) => {
-    console.log("Form submitted with data:", data);
     if (Object.keys(form.formState.errors).length > 0) {
       console.log("Form validation errors:", form.formState.errors);
       return;
@@ -125,21 +127,24 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
     }
   };
 
-  // Function to handle style selection and auto-fill color and description
   const handleStyleSelect = (index: number, value: string) => {
     const selectedStyle = styles?.find(style => style.styleNumber === value);
 
     if (selectedStyle) {
-      // If the style exists in our system
       form.setValue(`items.${index}.styleId`, selectedStyle.id);
       form.setValue(`items.${index}.manualStyleNumber`, selectedStyle.styleNumber);
       form.setValue(`items.${index}.color`, selectedStyle.color || '');
       form.setValue(`items.${index}.description`, selectedStyle.description || '');
     } else {
-      // For manual style number entry
       form.setValue(`items.${index}.styleId`, 0);
       form.setValue(`items.${index}.manualStyleNumber`, value);
     }
+  };
+
+  // Helper function to format date for input
+  const formatDateForInput = (date: Date | null | undefined) => {
+    if (!date) return '';
+    return new Date(date).toISOString().split('T')[0];
   };
 
   return (
@@ -263,15 +268,15 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
             <FormField
               control={form.control}
               name="orderDate"
-              render={({ field }) => (
+              render={({ field: { value, onChange, ...field } }) => (
                 <FormItem>
                   <FormLabel>Order Date</FormLabel>
                   <FormControl>
                     <Input
                       type="date"
                       {...field}
-                      value={field.value?.toISOString().split('T')[0]}
-                      onChange={e => field.onChange(new Date(e.target.value))}
+                      value={formatDateForInput(value)}
+                      onChange={e => onChange(new Date(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -282,15 +287,15 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
             <FormField
               control={form.control}
               name="startShipDate"
-              render={({ field }) => (
+              render={({ field: { value, onChange, ...field } }) => (
                 <FormItem>
                   <FormLabel>Start Ship Date</FormLabel>
                   <FormControl>
                     <Input
                       type="date"
                       {...field}
-                      value={field.value?.toISOString().split('T')[0]}
-                      onChange={e => field.onChange(new Date(e.target.value))}
+                      value={formatDateForInput(value)}
+                      onChange={e => onChange(new Date(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -301,15 +306,15 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
             <FormField
               control={form.control}
               name="cancelDate"
-              render={({ field }) => (
+              render={({ field: { value, onChange, ...field } }) => (
                 <FormItem>
                   <FormLabel>Cancel Date</FormLabel>
                   <FormControl>
                     <Input
                       type="date"
                       {...field}
-                      value={field.value?.toISOString().split('T')[0]}
-                      onChange={e => field.onChange(new Date(e.target.value))}
+                      value={formatDateForInput(value)}
+                      onChange={e => onChange(new Date(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -321,7 +326,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
         <Separator />
 
-        {/* Items Section with manual style number support */}
+        {/* Items Section */}
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Order Items</h3>
