@@ -144,6 +144,30 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
 
           <FormField
             control={form.control}
+            name="terms"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Payment Terms</FormLabel>
+                <FormControl>
+                  <select
+                    {...field}
+                    className="w-full px-3 py-2 border rounded-md"
+                  >
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-1">
+          <FormField
+            control={form.control}
             name="poType"
             render={({ field }) => (
               <FormItem>
@@ -181,28 +205,6 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
-            name="terms"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment Terms</FormLabel>
-                <FormControl>
-                  <select
-                    {...field}
-                    className="w-full px-3 py-2 border rounded-md"
-                  >
-                    <option value="Net 30">Net 30</option>
-                    <option value="Net 45">Net 45</option>
-                    <option value="Net 60">Net 60</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
             name="billTo"
             render={({ field }) => (
               <FormItem>
@@ -214,9 +216,7 @@ export default function PurchaseOrderForm({ onSubmit }: Props) {
               </FormItem>
             )}
           />
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
             name="shipTo"
