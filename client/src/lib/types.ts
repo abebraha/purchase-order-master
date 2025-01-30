@@ -19,6 +19,7 @@ export const POFormSchema = z.object({
   billTo: z.string().min(1, "Bill to address is required"),
   startShipDate: z.date(),
   cancelDate: z.date(),
+  dueDate: z.date().optional(),
   items: z.array(z.object({
     styleId: z.number(),
     manualStyleNumber: z.string(),

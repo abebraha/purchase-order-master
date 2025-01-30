@@ -83,11 +83,12 @@ export default function POPreview({ data }: Props) {
     doc.setTextColor(44, 62, 80);
     doc.text(`PO Type: ${data.poType}`, 25, 82);
     doc.text(`Order Date: ${format(data.orderDate, "MMMM d, yyyy")}`, 25, 89);
-    doc.text(`Payment Terms: ${data.terms}`, 25, 96); // Added Payment Terms
+    doc.text(`Payment Terms: ${data.terms}`, 25, 96);
     doc.text(`Start Ship: ${format(data.startShipDate, "MMM d, yyyy")}`, 115, 82);
     doc.text(`Cancel Date: ${format(data.cancelDate, "MMM d, yyyy")}`, 115, 89);
-    doc.text(`Due Date: ${format(data.dueDate, "MMM d, yyyy")}`, 115, 96); //Added Due Date
-
+    if (data.dueDate) {
+      doc.text(`Due Date: ${format(data.dueDate, "MMM d, yyyy")}`, 115, 96);
+    }
 
     // Address section with card-like design
     doc.setFillColor(255, 255, 255);
@@ -110,16 +111,14 @@ export default function POPreview({ data }: Props) {
     });
 
     // Items table with updated style number handling
-    const tableData = data.items.map(item => {
-      return [
-        getStyleNumber(item),
-        item.color || '',
-        item.description || '',
-        formatNumber(item.quantity),
-        `$${formatNumber(item.price, 2)}`,
-        `$${formatNumber(item.quantity * item.price, 2)}`,
-      ];
-    });
+    const tableData = data.items.map(item => ([
+      getStyleNumber(item),
+      item.color || '',
+      item.description || '',
+      formatNumber(item.quantity),
+      `$${formatNumber(item.price, 2)}`,
+      `$${formatNumber(item.quantity * item.price, 2)}`,
+    ]));
 
     autoTable(doc, {
       startY: 170,
@@ -159,7 +158,7 @@ export default function POPreview({ data }: Props) {
     doc.text(`Total Quantity: ${formatNumber(totalQuantity)}`, width - 75, finalY + 8);
     doc.text(`Total Cost: $${formatNumber(totalCost, 2)}`, width - 75, finalY + 18);
 
-    doc.save('purchase-order.pdf');
+    doc.save(`PO-${data.poNumber}.pdf`);
   };
 
   return (
@@ -192,7 +191,7 @@ export default function POPreview({ data }: Props) {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-5 gap-8 mb-8"> {/* Changed to 5 columns */}
+        <div className="grid md:grid-cols-5 gap-8 mb-8">
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">PO Type</h3>
             <p className="text-gray-700">{data.poType}</p>
@@ -228,18 +227,16 @@ export default function POPreview({ data }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.items.map((item, index) => {
-                return (
-                  <TableRow key={index} className="hover:bg-gray-50">
-                    <TableCell className="font-medium">{getStyleNumber(item)}</TableCell>
-                    <TableCell>{item.color}</TableCell>
-                    <TableCell>{item.description}</TableCell>
-                    <TableCell className="text-right">{formatNumber(item.quantity)}</TableCell>
-                    <TableCell className="text-right">${formatNumber(item.price, 2)}</TableCell>
-                    <TableCell className="text-right">${formatNumber(item.quantity * item.price, 2)}</TableCell>
-                  </TableRow>
-                );
-              })}
+              {data.items.map((item, index) => (
+                <TableRow key={index} className="hover:bg-gray-50">
+                  <TableCell className="font-medium">{getStyleNumber(item)}</TableCell>
+                  <TableCell>{item.color}</TableCell>
+                  <TableCell>{item.description}</TableCell>
+                  <TableCell className="text-right">{formatNumber(item.quantity)}</TableCell>
+                  <TableCell className="text-right">${formatNumber(item.price, 2)}</TableCell>
+                  <TableCell className="text-right">${formatNumber(item.quantity * item.price, 2)}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
             <TableFooter className="bg-gray-50">
               <TableRow>
