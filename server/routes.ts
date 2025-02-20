@@ -230,17 +230,20 @@ export function registerRoutes(app: Express): Server {
 
   app.put("/api/purchase-orders/:id", async (req, res) => {
     try {
-      const { items, poNumber, terms, orderDate, ...poData } = req.body;
+      const { items, poNumber, terms, orderDate, startShipDate, cancelDate, shipTo, billTo, poType, specialInstructions } = req.body;
       const poId = parseInt(req.params.id);
 
-      // Convert string dates to Date objects
+      // Convert string dates to Date objects and prepare update data
       const processedPoData = {
         poNumber,
         terms,
-        ...poData,
+        poType,
+        shipTo,
+        billTo,
+        specialInstructions,
         orderDate: new Date(orderDate),
-        startShipDate: new Date(poData.startShipDate),
-        cancelDate: new Date(poData.cancelDate)
+        startShipDate: new Date(startShipDate),
+        cancelDate: new Date(cancelDate),
       };
 
       const updatedPO = await db.transaction(async (tx) => {
@@ -275,7 +278,36 @@ export function registerRoutes(app: Express): Server {
         return po;
       });
 
-      res.json(updatedPO);
+      // Fetch the updated PO with its items to return
+      const updatedPOWithItems = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, poId),
+        with: {
+          items: {
+            with: {
+              style: true,
+            },
+          },
+        },
+      });
+
+      if (!updatedPOWithItems) {
+        throw new Error("Failed to fetch updated purchase order");
+      }
+
+      // Format the response to match the POFormValues type
+      const formattedPO = {
+        ...updatedPOWithItems,
+        items: updatedPOWithItems.items.map(item => ({
+          styleId: item.styleId || 0,
+          manualStyleNumber: item.manualStyleNumber || '',
+          color: item.color || '',
+          description: item.description || '',
+          quantity: item.quantity,
+          price: item.price,
+        }))
+      };
+
+      res.json(formattedPO);
     } catch (error) {
       console.error('Error updating purchase order:', error);
       res.status(500).json({ 
