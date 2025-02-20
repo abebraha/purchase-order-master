@@ -95,18 +95,18 @@ export default function POPreview({ data }: Props) {
     doc.roundedRect(15, 120, (width - 35) / 2, 40, 3, 3, 'F');
     doc.roundedRect((width + 5) / 2, 120, (width - 35) / 2, 40, 3, 3, 'F');
 
-    // Bill To and Ship To with improved formatting
+    // Ship To and Bill To with improved formatting
     doc.setFontSize(12);
     doc.setTextColor(44, 62, 80);
-    doc.text("Bill To:", 25, 130);
-    doc.text("Ship To:", (width + 15) / 2, 130);
+    doc.text("Ship To:", 25, 130);
+    doc.text("Bill To:", (width + 15) / 2, 130);
 
     doc.setFontSize(10);
     doc.setTextColor(75, 85, 99);
-    data.billTo.split('\n').forEach((line, i) => {
+    data.shipTo.split('\n').forEach((line, i) => {
       doc.text(line, 25, 138 + (i * 5));
     });
-    data.shipTo.split('\n').forEach((line, i) => {
+    data.billTo.split('\n').forEach((line, i) => {
       doc.text(line, (width + 15) / 2, 138 + (i * 5));
     });
 
@@ -197,15 +197,15 @@ export default function POPreview({ data }: Props) {
 
         <div className="grid gap-8 md:grid-cols-2 mb-8">
           <div className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Bill To</h3>
-            <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
-              {data.billTo}
-            </p>
-          </div>
-          <div className="space-y-2">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Ship To</h3>
             <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
               {data.shipTo}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Bill To</h3>
+            <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
+              {data.billTo}
             </p>
           </div>
         </div>

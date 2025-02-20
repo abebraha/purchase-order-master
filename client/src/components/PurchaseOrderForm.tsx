@@ -247,10 +247,10 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
           <div className="grid gap-6 md:grid-cols-2">
             <FormField
               control={form.control}
-              name="billTo"
+              name="shipTo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Bill To</FormLabel>
+                  <FormLabel>Ship To</FormLabel>
                   <FormControl>
                     <Textarea {...field} />
                   </FormControl>
@@ -261,10 +261,10 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
             <FormField
               control={form.control}
-              name="shipTo"
+              name="billTo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ship To</FormLabel>
+                  <FormLabel>Bill To</FormLabel>
                   <FormControl>
                     <Textarea {...field} />
                   </FormControl>
