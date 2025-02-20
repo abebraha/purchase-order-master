@@ -193,29 +193,10 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Calculate due date based on terms
-      const orderDateObj = new Date(orderDate);
-      let dueDate = new Date(orderDateObj);
-
-      switch (terms) {
-        case 'Net 30':
-          dueDate.setDate(dueDate.getDate() + 30);
-          break;
-        case 'Net 45':
-          dueDate.setDate(dueDate.getDate() + 45);
-          break;
-        case 'Net 60':
-          dueDate.setDate(dueDate.getDate() + 60);
-          break;
-        default:
-          dueDate.setDate(dueDate.getDate() + 30); // Default to Net 30
-      }
-
-      // Convert string dates to Date objects and add due date
+      // Convert string dates to Date objects
       const processedPoData = {
         poNumber,
         terms,
-        dueDate,
         ...poData,
         orderDate: new Date(orderDate),
         startShipDate: new Date(poData.startShipDate),
@@ -228,7 +209,7 @@ export function registerRoutes(app: Express): Server {
         // Process items, handling both existing styles and manual entries
         const poItemsData = items.map((item: any) => ({
           poId: po.id,
-          styleId: item.styleId === 0 ? null : item.styleId, // Set to null for manual entries
+          styleId: item.styleId === 0 ? null : item.styleId,
           manualStyleNumber: item.manualStyleNumber,
           color: item.color,
           description: item.description,

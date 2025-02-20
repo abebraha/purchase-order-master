@@ -95,20 +95,38 @@ export default function POPreview({ data }: Props) {
     doc.roundedRect(15, 120, (width - 35) / 2, 40, 3, 3, 'F');
     doc.roundedRect((width + 5) / 2, 120, (width - 35) / 2, 40, 3, 3, 'F');
 
-    // Ship To and Bill To with improved formatting
+    // Bill To and Ship To with improved formatting
     doc.setFontSize(12);
     doc.setTextColor(44, 62, 80);
-    doc.text("Ship To:", 25, 130);
-    doc.text("Bill To:", (width + 15) / 2, 130);
+    doc.text("Bill To:", 25, 130);
+    doc.text("Ship To:", (width + 15) / 2, 130);
 
     doc.setFontSize(10);
     doc.setTextColor(75, 85, 99);
-    data.shipTo.split('\n').forEach((line, i) => {
+    data.billTo.split('\n').forEach((line, i) => {
       doc.text(line, 25, 138 + (i * 5));
     });
-    data.billTo.split('\n').forEach((line, i) => {
+    data.shipTo.split('\n').forEach((line, i) => {
       doc.text(line, (width + 15) / 2, 138 + (i * 5));
     });
+
+    // Add Special Instructions if present
+    if (data.specialInstructions) {
+      const instructionsY = 170;
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(15, instructionsY, width - 30, 30, 3, 3, 'F');
+
+      doc.setFontSize(12);
+      doc.setTextColor(44, 62, 80);
+      doc.text("Special Instructions:", 25, instructionsY + 10);
+
+      doc.setFontSize(10);
+      doc.setTextColor(75, 85, 99);
+      doc.text(data.specialInstructions, 25, instructionsY + 20);
+    }
+
+    // Adjust the starting Y position for the items table based on whether there are special instructions
+    const tableStartY = data.specialInstructions ? 210 : 170;
 
     // Items table with updated style number handling
     const tableData = data.items.map(item => ([
@@ -121,7 +139,7 @@ export default function POPreview({ data }: Props) {
     ]));
 
     autoTable(doc, {
-      startY: 170,
+      startY: tableStartY,
       head: [['Style #', 'Color', 'Description', 'Quantity', 'Price', 'Total']],
       body: tableData,
       headStyles: {
@@ -179,41 +197,27 @@ export default function POPreview({ data }: Props) {
 
         <div className="grid gap-8 md:grid-cols-2 mb-8">
           <div className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Ship To</h3>
-            <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
-              {data.shipTo}
-            </p>
-          </div>
-          <div className="space-y-2">
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Bill To</h3>
             <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
               {data.billTo}
             </p>
           </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Ship To</h3>
+            <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
+              {data.shipTo}
+            </p>
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-5 gap-8 mb-8">
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">PO Type</h3>
-            <p className="text-gray-700">{data.poType}</p>
+        {data.specialInstructions && (
+          <div className="mb-8">
+            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide mb-2">Special Instructions</h3>
+            <p className="whitespace-pre-line text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100">
+              {data.specialInstructions}
+            </p>
           </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Payment Terms</h3>
-            <p className="text-gray-700">{data.terms}</p>
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Order Date</h3>
-            <p className="text-gray-700">{format(new Date(data.orderDate), "MMMM d, yyyy")}</p>
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Start Ship Date</h3>
-            <p className="text-gray-700">{format(new Date(data.startShipDate), "MMMM d, yyyy")}</p>
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">Cancel Date</h3>
-            <p className="text-gray-700">{format(new Date(data.cancelDate), "MMMM d, yyyy")}</p>
-          </div>
-        </div>
+        )}
 
         <div className="rounded-lg overflow-hidden border border-gray-200">
           <Table>

@@ -36,6 +36,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
     orderDate: new Date(defaultValues.orderDate),
     startShipDate: new Date(defaultValues.startShipDate),
     cancelDate: new Date(defaultValues.cancelDate),
+    specialInstructions: defaultValues.specialInstructions || '',
   } : undefined;
 
   const form = useForm<POFormValues>({
@@ -49,6 +50,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
       billTo: "",
       startShipDate: new Date(),
       cancelDate: new Date(),
+      specialInstructions: "",
       items: [{ styleId: 0, quantity: 1, price: 0, color: "", description: "", manualStyleNumber: "" }],
     },
   });
@@ -241,7 +243,7 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
 
         {/* Address Section */}
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Addresses</h3>
+          <h3 className="text-lg font-semibold">Addresses & Special Instructions</h3>
           <div className="grid gap-6 md:grid-cols-2">
             <FormField
               control={form.control}
@@ -271,71 +273,20 @@ export default function PurchaseOrderForm({ onSubmit, defaultValues, mode = 'cre
               )}
             />
           </div>
-        </div>
 
-        <Separator />
-
-        {/* Dates Section */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Important Dates</h3>
-          <div className="grid gap-6 md:grid-cols-3">
-            <FormField
-              control={form.control}
-              name="orderDate"
-              render={({ field: { value, onChange, ...field } }) => (
-                <FormItem>
-                  <FormLabel>Order Date</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="date"
-                      {...field}
-                      value={formatDateForInput(value)}
-                      onChange={e => onChange(new Date(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="startShipDate"
-              render={({ field: { value, onChange, ...field } }) => (
-                <FormItem>
-                  <FormLabel>Start Ship Date</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="date"
-                      {...field}
-                      value={formatDateForInput(value)}
-                      onChange={e => onChange(new Date(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="cancelDate"
-              render={({ field: { value, onChange, ...field } }) => (
-                <FormItem>
-                  <FormLabel>Cancel Date</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="date"
-                      {...field}
-                      value={formatDateForInput(value)}
-                      onChange={e => onChange(new Date(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+          <FormField
+            control={form.control}
+            name="specialInstructions"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Special Instructions</FormLabel>
+                <FormControl>
+                  <Textarea {...field} placeholder="Enter any special instructions or notes" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </div>
 
         <Separator />
