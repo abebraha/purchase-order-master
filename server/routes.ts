@@ -233,24 +233,29 @@ export function registerRoutes(app: Express): Server {
       const { items, poNumber, terms, orderDate, startShipDate, cancelDate, shipTo, billTo, poType, specialInstructions } = req.body;
       const poId = parseInt(req.params.id);
 
-      // Convert string dates to Date objects and prepare update data
-      const processedPoData = {
-        poNumber,
-        terms,
-        poType,
-        shipTo,
-        billTo,
-        specialInstructions,
+      // Explicitly define update fields
+      const poUpdate = {
+        poNumber: poNumber,
+        terms: terms,
+        poType: poType,
+        shipTo: shipTo,
+        billTo: billTo,
+        specialInstructions: specialInstructions || '',
         orderDate: new Date(orderDate),
         startShipDate: new Date(startShipDate),
         cancelDate: new Date(cancelDate),
       };
 
       const updatedPO = await db.transaction(async (tx) => {
-        // Update the main PO record
+        // Delete existing items first
+        await tx
+          .delete(poItems)
+          .where(eq(poItems.poId, poId));
+
+        // Then update the PO
         const [po] = await tx
           .update(purchaseOrders)
-          .set(processedPoData)
+          .set(poUpdate)
           .where(eq(purchaseOrders.id, poId))
           .returning();
 
@@ -258,18 +263,13 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Purchase order not found");
         }
 
-        // Delete existing items
-        await tx
-          .delete(poItems)
-          .where(eq(poItems.poId, poId));
-
         // Insert new items
         const poItemsData = items.map((item: any) => ({
           poId: po.id,
           styleId: item.styleId === 0 ? null : item.styleId,
-          manualStyleNumber: item.manualStyleNumber,
-          color: item.color,
-          description: item.description,
+          manualStyleNumber: item.manualStyleNumber || '',
+          color: item.color || '',
+          description: item.description || '',
           quantity: item.quantity,
           price: item.price
         }));
@@ -278,7 +278,7 @@ export function registerRoutes(app: Express): Server {
         return po;
       });
 
-      // Fetch the updated PO with its items to return
+      // Fetch the updated PO with its items
       const updatedPOWithItems = await db.query.purchaseOrders.findFirst({
         where: eq(purchaseOrders.id, poId),
         with: {
