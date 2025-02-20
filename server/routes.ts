@@ -228,6 +228,63 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.put("/api/purchase-orders/:id", async (req, res) => {
+    try {
+      const { items, poNumber, terms, orderDate, ...poData } = req.body;
+      const poId = parseInt(req.params.id);
+
+      // Convert string dates to Date objects
+      const processedPoData = {
+        poNumber,
+        terms,
+        ...poData,
+        orderDate: new Date(orderDate),
+        startShipDate: new Date(poData.startShipDate),
+        cancelDate: new Date(poData.cancelDate)
+      };
+
+      const updatedPO = await db.transaction(async (tx) => {
+        // Update the main PO record
+        const [po] = await tx
+          .update(purchaseOrders)
+          .set(processedPoData)
+          .where(eq(purchaseOrders.id, poId))
+          .returning();
+
+        if (!po) {
+          throw new Error("Purchase order not found");
+        }
+
+        // Delete existing items
+        await tx
+          .delete(poItems)
+          .where(eq(poItems.poId, poId));
+
+        // Insert new items
+        const poItemsData = items.map((item: any) => ({
+          poId: po.id,
+          styleId: item.styleId === 0 ? null : item.styleId,
+          manualStyleNumber: item.manualStyleNumber,
+          color: item.color,
+          description: item.description,
+          quantity: item.quantity,
+          price: item.price
+        }));
+
+        await tx.insert(poItems).values(poItemsData);
+        return po;
+      });
+
+      res.json(updatedPO);
+    } catch (error) {
+      console.error('Error updating purchase order:', error);
+      res.status(500).json({ 
+        error: 'Failed to update purchase order',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   app.get("/api/purchase-orders/:id", async (req, res) => {
     try {
       const po = await db.query.purchaseOrders.findFirst({
