@@ -268,5 +268,27 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.delete("/api/purchase-orders/:id", async (req, res) => {
+    try {
+      await db.transaction(async (tx) => {
+        // Delete PO items first
+        await tx.delete(poItems)
+          .where(eq(poItems.poId, parseInt(req.params.id)));
+
+        // Then delete the PO
+        await tx.delete(purchaseOrders)
+          .where(eq(purchaseOrders.id, parseInt(req.params.id)));
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting purchase order:', error);
+      res.status(500).json({ 
+        error: 'Failed to delete purchase order',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   return httpServer;
 }
