@@ -60,7 +60,7 @@ export default function POPreview({ data }: Props) {
     // Company header with modern styling
     doc.setFontSize(24);
     doc.setTextColor(44, 62, 80);
-    doc.text("United Intimate Group", 105, 30, { align: "center" });
+    doc.text("Soul Lune Apparel Group", 105, 30, { align: "center" });
 
     // PO Number with enhanced visibility
     doc.setFontSize(14);
@@ -70,7 +70,7 @@ export default function POPreview({ data }: Props) {
     // Contact information with improved layout
     doc.setFontSize(10);
     doc.setTextColor(107, 114, 128);
-    doc.text("1410 Broadway/ Suite 1502, New York, NY, 10018", 105, 38, { align: "center" });
+    doc.text("31 W 34th St. Suite 8028, New York, NY 10001", 105, 38, { align: "center" });
     doc.text("Email: ira@unitedintimate.com", 105, 43, { align: "center" });
     doc.text("Phone: Office - 347-380-8420, Cell - 646-251-2759", 105, 48, { align: "center" });
 
@@ -187,9 +187,9 @@ export default function POPreview({ data }: Props) {
           <div className="absolute right-0 top-0">
             <p className="text-lg font-semibold text-gray-800">PO #: {data.poNumber}</p>
           </div>
-          <h2 className="text-3xl font-semibold text-gray-800 mb-2">United Intimate Group</h2>
+          <h2 className="text-3xl font-semibold text-gray-800 mb-2">Soul Lune Apparel Group</h2>
           <div className="space-y-1 text-gray-500">
-            <p>1410 Broadway/ Suite 1502, New York, NY, 10018</p>
+            <p>31 W 34th St. Suite 8028, New York, NY 10001</p>
             <p>Email: ira@unitedintimate.com</p>
             <p>Phone: Office - 347-380-8420, Cell - 646-251-2759</p>
           </div>
