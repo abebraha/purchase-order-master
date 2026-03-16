@@ -29,7 +29,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
 export const poItems = pgTable("po_items", {
   id: serial("id").primaryKey(),
   poId: serial("po_id").references(() => purchaseOrders.id),
-  styleId: serial("style_id").references(() => styles.id),
+  styleId: serial("style_id"),
   color: text("color").notNull(),
   description: text("description").notNull(),
   quantity: numeric("quantity").notNull(),
