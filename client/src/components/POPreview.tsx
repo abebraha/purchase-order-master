@@ -71,8 +71,8 @@ export default function POPreview({ data }: Props) {
     doc.setFontSize(10);
     doc.setTextColor(107, 114, 128);
     doc.text("31 W 34th St. Suite 8028, New York, NY 10001", 105, 38, { align: "center" });
-    doc.text("Email: ira@unitedintimate.com", 105, 43, { align: "center" });
-    doc.text("Phone: Office - 347-380-8420, Cell - 646-251-2759", 105, 48, { align: "center" });
+    doc.text("Email: ira@slapparelgroupny.com", 105, 43, { align: "center" });
+    doc.text("Phone: +1 (646) 251-2759", 105, 48, { align: "center" });
 
     // Info section with modern card-like design
     doc.setFillColor(255, 255, 255);
@@ -190,8 +190,8 @@ export default function POPreview({ data }: Props) {
           <h2 className="text-3xl font-semibold text-gray-800 mb-2">Soul Lune Apparel Group</h2>
           <div className="space-y-1 text-gray-500">
             <p>31 W 34th St. Suite 8028, New York, NY 10001</p>
-            <p>Email: ira@unitedintimate.com</p>
-            <p>Phone: Office - 347-380-8420, Cell - 646-251-2759</p>
+            <p>Email: ira@slapparelgroupny.com</p>
+            <p>Phone: +1 (646) 251-2759</p>
           </div>
         </div>
 
