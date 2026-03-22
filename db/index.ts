@@ -48,10 +48,13 @@ client`
     id SERIAL PRIMARY KEY,
     po_id INTEGER REFERENCES purchase_orders(id),
     style_id INTEGER,
+    manual_style_number TEXT DEFAULT '',
     color TEXT NOT NULL,
     description TEXT NOT NULL,
     quantity NUMERIC NOT NULL,
     price NUMERIC NOT NULL
   )
+`).then(() => client`
+  ALTER TABLE po_items ADD COLUMN IF NOT EXISTS manual_style_number TEXT DEFAULT ''
 `).then(() => console.log('Database tables ready'))
   .catch((err: any) => console.error('Error creating tables:', err));

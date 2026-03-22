@@ -200,7 +200,8 @@ export function registerRoutes(app: Express): Server {
         ...poData,
         orderDate: new Date(orderDate),
         startShipDate: new Date(poData.startShipDate),
-        cancelDate: new Date(poData.cancelDate)
+        cancelDate: new Date(poData.cancelDate),
+        dueDate: poData.dueDate ? new Date(poData.dueDate) : new Date(poData.cancelDate),
       };
 
       const newPO = await db.transaction(async (tx) => {
@@ -234,16 +235,16 @@ export function registerRoutes(app: Express): Server {
       const poId = parseInt(req.params.id);
 
       // Explicitly define update fields
-      const poUpdate = {
+      const poUpdate: any = {
         poNumber: poNumber,
         terms: terms,
         poType: poType,
         shipTo: shipTo,
         billTo: billTo,
-        specialInstructions: specialInstructions || '',
         orderDate: new Date(orderDate),
         startShipDate: new Date(startShipDate),
         cancelDate: new Date(cancelDate),
+        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : new Date(cancelDate),
       };
 
       const updatedPO = await db.transaction(async (tx) => {
