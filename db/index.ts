@@ -8,7 +8,12 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// Debug: log the host being connected to
+const dbUrl = new URL(process.env.DATABASE_URL);
+console.log(`[db] Connecting to host: ${dbUrl.hostname}, port: ${dbUrl.port}, database: ${dbUrl.pathname}`);
+
 const isRailwayInternal = process.env.DATABASE_URL?.includes('.railway.internal');
+console.log(`[db] isRailwayInternal: ${isRailwayInternal}, SSL: ${process.env.NODE_ENV === "production" && !isRailwayInternal}`);
 const client = postgres(process.env.DATABASE_URL, {
   ssl: process.env.NODE_ENV === "production" && !isRailwayInternal
     ? { rejectUnauthorized: false }
