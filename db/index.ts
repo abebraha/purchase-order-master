@@ -2,19 +2,21 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@db/schema";
 
-if (!process.env.DATABASE_URL) {
+// Use DB_URL if set (avoids Railway auto-override of DATABASE_URL)
+const connectionUrl = process.env.DB_URL || process.env.DATABASE_URL;
+if (!connectionUrl) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "DB_URL or DATABASE_URL must be set. Did you forget to provision a database?",
   );
 }
 
 // Debug: log the host being connected to
-const dbUrl = new URL(process.env.DATABASE_URL);
+const dbUrl = new URL(connectionUrl);
 console.log(`[db] Connecting to host: ${dbUrl.hostname}, port: ${dbUrl.port}, database: ${dbUrl.pathname}`);
 
-const isRailwayInternal = process.env.DATABASE_URL?.includes('.railway.internal');
+const isRailwayInternal = connectionUrl.includes('.railway.internal');
 console.log(`[db] isRailwayInternal: ${isRailwayInternal}, SSL: ${process.env.NODE_ENV === "production" && !isRailwayInternal}`);
-const client = postgres(process.env.DATABASE_URL, {
+const client = postgres(connectionUrl, {
   ssl: process.env.NODE_ENV === "production" && !isRailwayInternal
     ? { rejectUnauthorized: false }
     : false,
