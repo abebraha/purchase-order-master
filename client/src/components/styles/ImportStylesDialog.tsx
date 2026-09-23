@@ -35,15 +35,16 @@ export type ImportMode = "file" | "paste" | "orders";
 
 /**
  * Three segments share a phone-width sheet, so phones get short labels without icons (and the
- * narrowest phones a shorter one still).
+ * narrowest phones a shorter one still). VoiceOver always reads the full name.
  */
 function modeLabel(Icon: LucideIcon, long: string, short = long, tiny = short) {
   return (
     <span className="flex min-w-0 items-center justify-center gap-1.5">
       <Icon className="hidden h-3.5 w-3.5 shrink-0 sm:block" aria-hidden />
-      <span className="hidden truncate max-[359px]:inline">{tiny}</span>
-      <span className="truncate max-[359px]:hidden sm:hidden">{short}</span>
-      <span className="hidden truncate sm:inline">{long}</span>
+      <span className="sr-only">{long}</span>
+      <span aria-hidden className="hidden truncate max-[359px]:inline">{tiny}</span>
+      <span aria-hidden className="truncate max-[359px]:hidden sm:hidden">{short}</span>
+      <span aria-hidden className="hidden truncate sm:inline">{long}</span>
     </span>
   );
 }
