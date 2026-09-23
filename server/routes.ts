@@ -4,6 +4,7 @@ import multer from "multer";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import {
+  CustomerFormSchema,
   DATE_INPUT_RE,
   PO_STATUSES,
   PO_TYPES,
@@ -15,14 +16,17 @@ import {
 import {
   HttpError,
   bulkCreateStyles,
+  createCustomer,
   createPurchaseOrder,
   createStyle,
+  deleteCustomer,
   deletePurchaseOrder,
   deleteStyle,
   exportBackup,
   getPurchaseOrder,
   getSettings,
   listAddresses,
+  listCustomers,
   listDeletedPurchaseOrders,
   listPurchaseOrders,
   listRevisions,
@@ -34,6 +38,7 @@ import {
   setArchived,
   setPurchaseOrderStatus,
   suggestNextPoNumber,
+  updateCustomer,
   updatePurchaseOrder,
   updateStyle,
   type ArchivedFilter,
@@ -169,6 +174,23 @@ function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput & { 
   };
 }
 
+/** Missing fields count as blank (a PUT replaces every field of the customer). */
+function parseCustomer(body: unknown) {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof b[key] === "string" ? (b[key] as string) : "");
+  return CustomerFormSchema.parse({
+    name: text("name"),
+    contactName: text("contactName"),
+    email: text("email"),
+    phone: text("phone"),
+    shipTo: text("shipTo"),
+    billTo: text("billTo"),
+    terms: text("terms"),
+    specialInstructions: text("specialInstructions"),
+    notes: text("notes"),
+  });
+}
+
 function archivedFilter(value: unknown): ArchivedFilter {
   return value === "only" || value === "include" ? value : "exclude";
 }
@@ -257,6 +279,27 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/styles/:id", route(async (req, res) => {
     await deleteStyle(idParam(req));
+    res.json({ success: true });
+  }));
+
+  // -------------------------------------------------------------------------
+  // Customers
+  // -------------------------------------------------------------------------
+
+  app.get("/api/customers", route(async (_req, res) => {
+    res.json(await listCustomers());
+  }));
+
+  app.post("/api/customers", route(async (req, res) => {
+    res.status(201).json(await createCustomer(parseCustomer(req.body)));
+  }));
+
+  app.put("/api/customers/:id", route(async (req, res) => {
+    res.json(await updateCustomer(idParam(req), parseCustomer(req.body)));
+  }));
+
+  app.delete("/api/customers/:id", route(async (req, res) => {
+    await deleteCustomer(idParam(req));
     res.json({ success: true });
   }));
 

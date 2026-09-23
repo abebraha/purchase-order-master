@@ -139,6 +139,28 @@ export interface StyleRecord {
   usageCount: number;
 }
 
+/**
+ * A saved customer. Choosing one on a purchase order fills in the fields below that aren't blank;
+ * the PO keeps its own copy, so later changes here never touch saved orders.
+ */
+export interface CustomerRecord {
+  id: number;
+  name: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  shipTo: string;
+  billTo: string;
+  /** Blank = use the default terms from Settings. */
+  terms: string;
+  /** Printed on their purchase orders. */
+  specialInstructions: string;
+  /** Internal notes about the customer — never copied onto a PO. */
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StyleImportResult {
   created: number;
   skipped: number;
@@ -271,6 +293,23 @@ export const StyleFormSchema = z.object({
   description: z.string().trim(),
 });
 export type StyleFormValues = z.infer<typeof StyleFormSchema>;
+
+export const CustomerFormSchema = z.object({
+  name: z.string().trim().min(1, "Customer name is required").max(120, "Too long"),
+  contactName: z.string().trim().max(120, "Too long"),
+  email: z
+    .string()
+    .trim()
+    .max(200, "Too long")
+    .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Enter a valid email address"),
+  phone: z.string().trim().max(60, "Too long"),
+  shipTo: z.string().trim(),
+  billTo: z.string().trim(),
+  terms: z.string().trim().max(100, "Too long"),
+  specialInstructions: z.string().trim(),
+  notes: z.string().trim(),
+});
+export type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
 export const SettingsSchema = z.object({
   company: z.object({

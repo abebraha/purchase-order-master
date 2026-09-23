@@ -3,6 +3,8 @@ import { ApiError, queryClient, reportUnauthorized } from "./queryClient";
 import type {
   AddressBook,
   AppSettings,
+  CustomerFormValues,
+  CustomerRecord,
   DeletedPurchaseOrder,
   POFormValues,
   POStatus,
@@ -57,6 +59,7 @@ export const keys = {
   nextNumber: () => ["/api/purchase-orders/next-number"] as const,
   deleted: () => ["/api/deleted-purchase-orders"] as const,
   styles: () => ["/api/styles"] as const,
+  customers: () => ["/api/customers"] as const,
   addresses: () => ["/api/addresses"] as const,
   settings: () => ["/api/settings"] as const,
 };
@@ -111,6 +114,10 @@ export function useDeletedPurchaseOrders() {
 
 export function useStyles() {
   return useQuery<StyleRecord[]>({ queryKey: keys.styles() });
+}
+
+export function useCustomers() {
+  return useQuery<CustomerRecord[]>({ queryKey: keys.customers() });
 }
 
 export function useAddresses() {
@@ -263,6 +270,36 @@ export function useImportStylesCsv() {
       return api<StyleImportResult>("POST", "/api/styles/import", form);
     },
     onSuccess: () => invalidateStyles(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Customer mutations
+// ---------------------------------------------------------------------------
+
+function invalidateCustomers() {
+  return invalidateByPrefix(queryClient, "/api/customers");
+}
+
+export function useCreateCustomer() {
+  return useMutation({
+    mutationFn: (values: CustomerFormValues) => api<CustomerRecord>("POST", "/api/customers", values),
+    onSuccess: () => invalidateCustomers(),
+  });
+}
+
+export function useUpdateCustomer() {
+  return useMutation({
+    mutationFn: ({ id, ...values }: CustomerFormValues & { id: number }) =>
+      api<CustomerRecord>("PUT", `/api/customers/${id}`, values),
+    onSuccess: () => invalidateCustomers(),
+  });
+}
+
+export function useDeleteCustomer() {
+  return useMutation({
+    mutationFn: (id: number) => api<{ success: true }>("DELETE", `/api/customers/${id}`),
+    onSuccess: () => invalidateCustomers(),
   });
 }
 

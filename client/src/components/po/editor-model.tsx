@@ -15,11 +15,13 @@ import {
   POFormSchema,
   computeTotals,
   type AppSettings,
+  type CustomerRecord,
   type POFormValues,
   type POStatus,
   type POType,
   type PurchaseOrder,
 } from "@shared/po";
+import { pickPrefill, switchCustomer, type PrefillValues } from "@/components/customers/customerUtils";
 import { parseDate, toDateInputValue, todayInputValue } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
@@ -37,7 +39,14 @@ export interface EditorItem {
   price: string;
 }
 
-export type EditorValues = Omit<POFormValues, "items"> & { items: EditorItem[] };
+export type EditorValues = Omit<POFormValues, "items"> & {
+  items: EditorItem[];
+  /**
+   * Saved customer picked for this order (null = none). Only used to fill in the form — it's
+   * never sent to the server, and the PO keeps its own copy of every detail.
+   */
+  customerId: number | null;
+};
 
 export type EditorMode = "create" | "duplicate" | "edit";
 
@@ -103,7 +112,7 @@ export function isBlankItem(item: Partial<EditorItem> | undefined): boolean {
 }
 
 /** Editor values → schema input (numbers may be NaN; the schema reports those as "Enter a …"). */
-export function toFormValues(values: EditorValues): POFormValues {
+export function toFormValues({ customerId: _customerId, ...values }: EditorValues): POFormValues {
   return {
     ...values,
     items: (values.items ?? []).map((i) => ({
@@ -145,6 +154,7 @@ export function valuesForCreate(settings: AppSettings, poNumber = ""): EditorVal
     specialInstructions: "",
     notes: "",
     items: [emptyItem()],
+    customerId: null,
   };
 }
 
@@ -170,6 +180,7 @@ export function valuesFromPurchaseOrder(po: PurchaseOrder): EditorValues {
     specialInstructions: po.specialInstructions ?? "",
     notes: po.notes ?? "",
     items: items.length ? items : [emptyItem()],
+    customerId: null,
   };
 }
 
@@ -189,6 +200,20 @@ export function valuesForDuplicate(po: PurchaseOrder, poNumber = ""): EditorValu
     startShipDate: today,
     cancelDate: addDaysInput(today, windowDays),
     notes: "",
+  };
+}
+
+/** What a PO without a customer starts with — where a removed customer's details go back to. */
+export function noCustomerDetails(settings: AppSettings): PrefillValues {
+  return pickPrefill(valuesForCreate(settings));
+}
+
+/** `values` with a saved customer's details filled in (and the customer picked). */
+export function valuesWithCustomer(values: EditorValues, customer: CustomerRecord, settings: AppSettings): EditorValues {
+  return {
+    ...values,
+    ...switchCustomer(pickPrefill(values), null, customer, noCustomerDetails(settings)),
+    customerId: customer.id,
   };
 }
 
@@ -262,6 +287,7 @@ function sanitizeValues(raw: any, fallback: EditorValues): EditorValues {
     specialInstructions: str(raw?.specialInstructions, fallback.specialInstructions),
     notes: str(raw?.notes, fallback.notes),
     items: items.length ? items : [emptyItem()],
+    customerId: typeof raw?.customerId === "number" && raw.customerId > 0 ? raw.customerId : null,
   };
 }
 

@@ -7,9 +7,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useLocation } from "wouter";
 import { useForm, useWatch, type Control, type FieldErrors } from "react-hook-form";
 import { Archive, ArrowDownToLine, CopyPlus, Eye, History, Loader2 } from "lucide-react";
-import type { AppSettings, POFormValues, PurchaseOrder } from "@shared/po";
+import type { AppSettings, CustomerFormValues, POFormValues, PurchaseOrder } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
 import { ConfirmDialog, ResponsiveDialog } from "@/components/common";
+import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
+import { PREFILL_FIELDS } from "@/components/customers/customerUtils";
 import { FormSection, IconTile, ListRow, ListSection, type IosColor } from "@/components/kit";
 import PODocument from "@/components/po/PODocument";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ import { documentFromFormValues, type PODocumentData } from "@/lib/document";
 import { formatDateTime, formatMoney, formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressField } from "./AddressField";
+import { CustomerSection, useCustomerPicker } from "./CustomerSection";
 import { LineItemsEditor } from "./LineItemsEditor";
 import { OrderSection } from "./editor-order-section";
 import {
@@ -30,6 +33,7 @@ import {
   editorTotals,
   formatDraftTime,
   loadDraft,
+  noCustomerDetails,
   saveDraft,
   toFormValues,
   type EditorDraft,
@@ -122,6 +126,10 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
   const [preview, setPreview] = useState<PODocumentData | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [draft, setDraft] = useState<EditorDraft | null>(() => (mode === "create" ? loadDraft(defaultValues) : null));
+  const [newCustomer, setNewCustomer] = useState<Partial<CustomerFormValues> | null>(null);
+  const newCustomerOpenRef = useRef(false);
+  newCustomerOpenRef.current = newCustomer !== null;
+  const customerPicker = useCustomerPicker(form, settings);
 
   const isEdit = mode === "edit";
   const backHref = isEdit && po ? `/purchase-orders/${po.id}` : mode === "duplicate" && source ? `/purchase-orders/${source.id}` : "/purchase-orders";
@@ -271,19 +279,35 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     return () => cancelAnimationFrame(raf);
   }, [focusRequest]);
 
-  // ⌘S / Ctrl+S saves.
+  // ⌘S / Ctrl+S saves (not while adding a customer on top of the order).
   const submitRef = useRef(submit);
   submitRef.current = submit;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        void submitRef.current();
+        if (!newCustomerOpenRef.current) void submitRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // ---- New customer --------------------------------------------------------
+
+  /** Opens "Add Customer"; with no customer picked, it starts from the details typed on this order. */
+  const openNewCustomer = () => {
+    const values = getValues();
+    const defaults = noCustomerDetails(settings);
+    const seed: Partial<CustomerFormValues> = {};
+    if (!customerPicker.selected) {
+      for (const field of PREFILL_FIELDS) {
+        const value = (values[field] ?? "").trim();
+        if (value && value !== defaults[field].trim()) seed[field] = value;
+      }
+    }
+    setNewCustomer(seed);
+  };
 
   // ---- Preview -------------------------------------------------------------
 
@@ -418,6 +442,8 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
                 )}
               </div>
             )}
+
+            <CustomerSection picker={customerPicker} onAddCustomer={openNewCustomer} />
 
             <OrderSection
               mode={mode}
@@ -556,6 +582,15 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
         cancelLabel="Keep Editing"
         destructive
         onConfirm={discardAndLeave}
+      />
+
+      <CustomerFormDialog
+        open={newCustomer !== null}
+        onOpenChange={(open) => !open && setNewCustomer(null)}
+        customer={null}
+        customers={customerPicker.customers}
+        initialValues={newCustomer ?? undefined}
+        onSaved={(saved) => customerPicker.choose(saved)}
       />
 
       <ResponsiveDialog

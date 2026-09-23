@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders"));
 const PurchaseOrderView = lazy(() => import("./pages/PurchaseOrderView"));
 const PurchaseOrderEditor = lazy(() => import("./pages/PurchaseOrderEditor"));
+const Customers = lazy(() => import("./pages/Customers"));
 const StyleManagement = lazy(() => import("./pages/StyleManagement"));
 const Settings = lazy(() => import("./pages/Settings"));
 
@@ -59,6 +60,7 @@ function App() {
             <Route path="/purchase-orders/new" component={PurchaseOrderEditor} />
             <Route path="/purchase-orders/:id/edit" component={PurchaseOrderEditor} />
             <Route path="/purchase-orders/:id" component={PurchaseOrderView} />
+            <Route path="/customers" component={Customers} />
             <Route path="/styles" component={StyleManagement} />
             <Route path="/settings" component={Settings} />
             <Route component={NotFound} />

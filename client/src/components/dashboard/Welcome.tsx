@@ -1,10 +1,10 @@
 import { Link } from "wouter";
-import { Building2, Plus, Tags } from "lucide-react";
+import { Building2, Plus, Tags, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTile, ListRow, ListSection } from "@/components/kit";
 import { useSettings } from "@/lib/api";
 
-/** First-run Home: a warm welcome with one obvious next step and two setup shortcuts. */
+/** First-run Home: a warm welcome with one obvious next step and a few setup shortcuts. */
 export function Welcome() {
   const { data: settings } = useSettings();
   const needsAddress = !!settings && !settings.company.address.trim();
@@ -31,6 +31,12 @@ export function Welcome() {
           leading={<IconTile icon={Building2} color="gray" />}
           title="Set Up Company Profile"
           subtitle={needsAddress ? "Add your address so it prints on every PO" : "Your name and address on every PO"}
+        />
+        <ListRow
+          href="/customers"
+          leading={<IconTile icon={Users} color="blue" />}
+          title="Add Customers"
+          subtitle="Fill in addresses and terms in one tap"
         />
         <ListRow
           href="/styles"
