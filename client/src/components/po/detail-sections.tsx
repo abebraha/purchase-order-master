@@ -3,6 +3,7 @@
  * status picker, summary, internal notes, the archived banner and the loading skeleton.
  */
 import { useState, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import { Archive, ArchiveRestore, Check, ChevronsUpDown, Clock, Loader2, Trash2, TriangleAlert } from "lucide-react";
 import { PO_STATUSES, PO_STATUS_LABELS, type POStatus, type PurchaseOrder } from "@shared/po";
 import { IconTile, ListRow, ListSection } from "@/components/kit";
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
 import { useReviewPurchaseOrders, useSetPurchaseOrderStatus } from "@/lib/api";
 import { isActivePO, isDueSoon, isOverdue } from "@/lib/filters";
@@ -35,6 +37,7 @@ const NEXT_STATUS: Partial<Record<POStatus, POStatus>> = {
 };
 
 export function StatusSection({ po }: { po: PurchaseOrder }) {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const setStatus = useSetPurchaseOrderStatus();
   const review = useReviewPurchaseOrders();
@@ -55,10 +58,26 @@ export function StatusSection({ po }: { po: PurchaseOrder }) {
       {
         onSuccess: () => {
           setConfirmCancel(false);
-          toast({ title: "Status Updated", description: `${label} is now ${PO_STATUS_LABELS[status]}.` });
+          toast({ title: "Status updated", description: `${label} is now ${PO_STATUS_LABELS[status]}.` });
         },
-        onError: (error) =>
-          toast({ variant: "destructive", title: "Couldn't change the status", description: error.message }),
+        onError: (error) => {
+          // An unfinished draft can't leave "Draft" yet — offer the editor right from the toast.
+          const missing = po.status === "draft" ? /^Finish this order first:\s*(.+)$/i.exec(error.message)?.[1] : undefined;
+          toast({
+            variant: missing ? "default" : "destructive",
+            title: missing ? "Finish this draft first" : "Couldn't change the status",
+            description: missing ? missing.charAt(0).toUpperCase() + missing.slice(1) : error.message,
+            action: missing ? (
+              <ToastAction
+                altText={`Edit ${label}`}
+                onClick={() => navigate(`/purchase-orders/${po.id}/edit`)}
+                className="h-8 rounded-full border-0 bg-primary/10 px-3.5 font-semibold text-primary hover:bg-primary/15 dark:bg-primary/20"
+              >
+                Edit
+              </ToastAction>
+            ) : undefined,
+          });
+        },
         onSettled: () => setPendingStatus(null),
       },
     );
@@ -179,37 +198,50 @@ function Value({ children }: { children: ReactNode }) {
   return <span className="block max-w-[11.5rem] truncate sm:max-w-[16rem]">{children}</span>;
 }
 
-function CancelCountdownRow({ po }: { po: PurchaseOrder }) {
+/** "Sep 30" this year, "Mar 4, 2025" otherwise. */
+function formatCancelDate(value: string | null | undefined): string {
+  return formatDate(value, parseDate(value)?.getFullYear() === new Date().getFullYear() ? "MMM d" : "MMM d, yyyy");
+}
+
+/** "In 5 days", "Tomorrow", "Today", "Passed yesterday", "Passed 3 days ago" — never a negative count. */
+function cancelCountdown(days: number): string {
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days > 1) return `In ${pluralize(days, "day")}`;
+  if (days === -1) return "Passed yesterday";
+  return `Passed ${pluralize(-days, "day")} ago`;
+}
+
+/**
+ * "Cancel Date" row for active orders, with a countdown underneath (red once it has passed,
+ * orange when it's close). Older orders still awaiting review get the plain date only: their
+ * dates came from the old app, so a countdown or alarm would be misleading.
+ */
+function CancelDateRow({ po }: { po: PurchaseOrder }) {
   const days = daysFromToday(po.cancelDate);
   if (!isActivePO(po) || days === null) return null;
+  const value = formatCancelDate(po.cancelDate);
+  if (po.needsReview) return <ListRow title="Cancel Date" value={value} />;
+
   const overdue = isOverdue(po);
   const soon = !overdue && isDueSoon(po);
-
-  let text: string;
-  if (overdue) text = `Past cancel date by ${pluralize(-days, "day")}`;
-  else if (days === 0) text = "Cancel date is today";
-  else if (days === 1) text = "Cancel date is tomorrow";
-  else text = `Cancel date in ${pluralize(days, "day")}`;
-
+  const Icon = overdue ? TriangleAlert : soon ? Clock : null;
   return (
     <ListRow
-      title={
+      title="Cancel Date"
+      subtitle={
         <span
           className={cn(
-            "flex items-center gap-1.5",
+            "flex items-center gap-1",
             overdue && "font-medium text-destructive",
-            soon && "font-medium text-[hsl(28_100%_38%)] dark:text-ios-orange",
+            soon && "font-medium text-[hsl(var(--warning-text))]",
           )}
         >
-          {overdue ? (
-            <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
-          ) : soon ? (
-            <Clock className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
-          ) : null}
-          <span className="truncate">{text}</span>
+          {Icon && <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />}
+          <span className="truncate">{cancelCountdown(days)}</span>
         </span>
       }
-      value={formatDate(po.cancelDate, parseDate(po.cancelDate)?.getFullYear() === new Date().getFullYear() ? "MMM d" : "MMM d, yyyy")}
+      value={value}
     />
   );
 }
@@ -226,7 +258,7 @@ export function SummarySection({ po }: { po: PurchaseOrder }) {
       <ListRow title="Items" value={formatNumber(po.itemCount)} />
       <ListRow title="Order Date" value={formatDate(po.orderDate) || <NotSet />} />
       <ListRow title="Ship Window" value={window || <NotSet />} />
-      <CancelCountdownRow po={po} />
+      <CancelDateRow po={po} />
       <ListRow title="Payment Terms" value={po.terms ? <Value>{po.terms}</Value> : <NotSet />} />
     </ListSection>
   );
@@ -266,11 +298,11 @@ export function ArchivedBanner({
         <div className="min-w-0">
           <p className="text-[17px] font-semibold leading-snug md:text-[15px]">This purchase order is archived</p>
           <p className="mt-0.5 text-[15px] leading-snug text-muted-foreground md:text-[13px]">
-            It's hidden from your active orders. Restore it to bring it back, or delete it permanently.
+            It's hidden from your active orders. Deleting it moves it to Recently Deleted in Settings.
           </p>
         </div>
       </div>
-      {/* Buttons share the row by content width, so "Delete Permanently" never clips at 375px. */}
+      {/* On phones the buttons share the row by content width. */}
       <div className="flex shrink-0 flex-wrap gap-2 [&>*]:flex-auto sm:[&>*]:flex-none">
         <Button variant="tinted" onClick={onRestore} disabled={restoring}>
           {restoring ? (
@@ -282,7 +314,7 @@ export function ArchivedBanner({
         </Button>
         <Button variant="destructive-tinted" onClick={onDelete}>
           <Trash2 className="hidden sm:block" aria-hidden />
-          Delete Permanently
+          Delete
         </Button>
       </div>
     </div>

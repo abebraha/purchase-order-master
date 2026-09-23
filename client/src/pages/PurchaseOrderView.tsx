@@ -136,7 +136,6 @@ function PODetail({
   const data = useMemo(() => documentFromPurchaseOrder(po), [po]);
   const title = `PO #${po.poNumber}`;
   const customer = firstLine(po.shipTo);
-  useDocumentTitle(title);
   useShortcuts(api);
 
   const meta = (
@@ -278,15 +277,6 @@ function StickyColumn({ children }: { children: ReactNode }) {
   );
 }
 
-function useDocumentTitle(title: string) {
-  useEffect(() => {
-    const previous = document.title;
-    document.title = `${title} · PO Master`;
-    return () => {
-      document.title = previous;
-    };
-  }, [title]);
-}
 
 /** Desktop keyboard shortcuts: E edits, ⌘P / Ctrl+P prints the PO (not the web page). */
 function useShortcuts(api: POActionsApi) {

@@ -121,19 +121,54 @@ export function isDueSoon(po: DueFields, days = DUE_SOON_DAYS): boolean {
   return isActivePO(po) && d !== null && d >= 0 && d <= days;
 }
 
+const APOSTROPHES = /['`\u00b4\u02bc\u2018\u2019\u201b\u2032]/g;
+const ACCENTS = /[\u0300-\u036f]/g;
+// Letters and digits of any script are kept. (RegExp constructor: the "u" flag needs ES2015+.)
+const NOT_WORD_OR_SPACE = new RegExp("[^\\p{L}\\p{N}\\s]", "gu");
+
+/**
+ * Folds text for forgiving search: lowercase, accents removed, and apostrophes, quotes and other
+ * punctuation (- . , / # & …) dropped, so "macys", "Macy's" and "Macy’s" (the iPhone's curly
+ * apostrophe) all read "macys", and "sl2045" finds "SL-2045". Whitespace is kept (collapsed) so
+ * query words can still be matched one by one. Only used for matching; stored text never changes.
+ */
+export function foldForSearch(text: string | null | undefined): string {
+  return (text ?? "")
+    .replace(APOSTROPHES, "") // before NFKD, which turns "´" into a space + accent
+    .normalize("NFKD")
+    .replace(ACCENTS, "") // "Café" → "Cafe"
+    .toLowerCase()
+    .replace(NOT_WORD_OR_SPACE, "") // punctuation and symbols are ignorable
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Search words of a query, folded like the text they are matched against (empty words dropped). */
+export function searchTerms(query: string): string[] {
+  return foldForSearch(query).split(" ").filter(Boolean);
+}
+
+// PurchaseOrder objects are immutable query-cache entries, so each one is folded only once.
+const searchTextCache = new WeakMap<PurchaseOrder, string>();
+
 function searchText(po: PurchaseOrder): string {
-  return [
-    po.poNumber,
-    po.poType,
-    po.terms,
-    po.shipTo,
-    po.billTo,
-    po.specialInstructions,
-    po.notes,
-    ...po.items.flatMap((i) => [i.styleNumber, i.manualStyleNumber, i.color, i.description]),
-  ]
-    .join(" \n ")
-    .toLowerCase();
+  let text = searchTextCache.get(po);
+  if (text === undefined) {
+    text = [
+      po.poNumber,
+      po.poType,
+      po.terms,
+      po.shipTo,
+      po.billTo,
+      po.specialInstructions,
+      po.notes,
+      ...po.items.flatMap((i) => [i.styleNumber, i.manualStyleNumber, i.color, i.description]),
+    ]
+      .map(foldForSearch)
+      .join(" \n ");
+    searchTextCache.set(po, text);
+  }
+  return text;
 }
 
 export function matchesFilters(po: PurchaseOrder, f: OrderFilters): boolean {
@@ -150,10 +185,10 @@ export function matchesFilters(po: PurchaseOrder, f: OrderFilters): boolean {
     if (f.from && day < asNum(f.from)) return false;
     if (f.to && day > asNum(f.to)) return false;
   }
-  const q = f.q.trim().toLowerCase();
-  if (q) {
+  const terms = searchTerms(f.q);
+  if (terms.length) {
     const haystack = searchText(po);
-    if (!q.split(/\s+/).every((term) => haystack.includes(term))) return false;
+    if (!terms.every((term) => haystack.includes(term))) return false;
   }
   return true;
 }

@@ -4,9 +4,9 @@
  *   usePOActions(po, settings)  handlers (PDF, share, print, duplicate, edit, archive, restore,
  *                               delete) + the confirmation dialogs they need
  *   POQuickActions              Contacts-style row of big action tiles (phones)
- *   PONavActions                nav-bar actions: "Edit" + ••• menu on phones, a toolbar on desktop
+ *   PONavActions                nav-bar actions: ••• menu + "Edit" on phones, a toolbar on desktop
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   Archive,
@@ -32,11 +32,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ToastAction } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/common";
 import { useToast } from "@/hooks/use-toast";
 import { useArchivePurchaseOrder, useDeletePurchaseOrder, useRestorePurchaseOrder } from "@/lib/api";
 import { documentFromPurchaseOrder, type PODocumentData } from "@/lib/document";
 import { exportLineItemsCsv } from "@/lib/export";
+import { pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type PdfModule = typeof import("@/lib/pdf");
@@ -114,7 +116,7 @@ export function usePdfActions(data: PODocumentData, settings: AppSettings | unde
       "pdf",
       async (mod) => {
         await mod.downloadPOPdf(data, effective);
-        toast({ title: "PDF Downloaded", description: mod.pdfFileName(data) });
+        toast({ title: "PDF downloaded", description: mod.pdfFileName(data) });
       },
       "Couldn't create the PDF",
     );
@@ -131,7 +133,7 @@ export function usePdfActions(data: PODocumentData, settings: AppSettings | unde
         const result = await mod.sharePOPdf(data, effective);
         if (result === "downloaded") {
           toast({
-            title: "PDF Downloaded",
+            title: "PDF downloaded",
             description: "Sharing isn't available on this device, so the PDF was saved instead.",
           });
         }
@@ -192,14 +194,14 @@ export function usePOActions(
     archiveMutation.mutate(po.id, {
       onSuccess: () => {
         setConfirm(null);
-        toast({ title: "Order Archived", description: `${label} is hidden from your active orders. You can restore it anytime.` });
+        toast({ title: "Purchase order archived", description: `${label} is hidden from your active orders. You can restore it anytime.` });
       },
       onError: errorToast("Couldn't archive this order"),
     });
 
   const restore = () =>
     restoreMutation.mutate(po.id, {
-      onSuccess: () => toast({ title: "Order Restored", description: `${label} is back in your active orders.` }),
+      onSuccess: () => toast({ title: "Purchase order restored", description: `${label} is back in your active orders.` }),
       onError: errorToast("Couldn't restore this order"),
     });
 
@@ -211,9 +213,19 @@ export function usePOActions(
       .mutateAsync(po.id)
       .then(() => {
         setConfirm(null);
+        // Deleting is recoverable: the order moves to Settings → Recently Deleted.
         toast({
-          title: "Order Deleted",
-          description: `${label} was removed. You can recover it in Settings → Recently Deleted.`,
+          title: "Purchase order deleted",
+          description: `${label} moved to Recently Deleted in Settings. You can recover it there anytime.`,
+          action: (
+            <ToastAction
+              altText="View Recently Deleted in Settings"
+              onClick={() => navigate("/settings#deleted")}
+              className="h-8 rounded-full border-0 bg-primary/10 px-3.5 font-semibold text-primary hover:bg-primary/15 dark:bg-primary/20"
+            >
+              View
+            </ToastAction>
+          ),
         });
         navigate("/purchase-orders?view=archived");
       })
@@ -235,7 +247,7 @@ export function usePOActions(
     edit: () => navigate(`/purchase-orders/${po.id}/edit`),
     exportCsv: () => {
       exportLineItemsCsv([po], `PO-${po.poNumber.replace(/[^\w.-]+/g, "_")}-line-items.csv`);
-      toast({ title: "Spreadsheet Downloaded", description: `${po.itemCount === 1 ? "1 line item" : `${po.itemCount} line items`} exported as CSV.` });
+      toast({ title: "Line items exported", description: `${pluralize(po.itemCount, "line item")} saved as a CSV file.` });
     },
     requestArchive: () => setConfirm("archive"),
     restore,
@@ -257,9 +269,9 @@ export function usePOActions(
       <ConfirmDialog
         open={confirm === "delete"}
         onOpenChange={(open) => !open && !deleteMutation.isPending && setConfirm(null)}
-        title={`Delete ${label} Permanently?`}
-        description="It will be removed from your purchase orders. A copy is kept, so you can still recover it later in Settings → Recently Deleted."
-        confirmLabel="Delete Permanently"
+        title={`Delete ${label}?`}
+        description="It moves to Recently Deleted in Settings, with its full history, so you can recover it anytime."
+        confirmLabel="Delete"
         destructive
         pending={deleteMutation.isPending}
         onConfirm={remove}
@@ -324,69 +336,64 @@ export function POQuickActions({ actions, className }: { actions: POActionsApi; 
 // Nav bar actions
 // ---------------------------------------------------------------------------
 
-function MenuItem({
-  icon: Icon,
-  children,
-  onSelect,
-  destructive,
-}: {
-  icon: LucideIcon;
-  children: ReactNode;
-  onSelect: () => void;
-  destructive?: boolean;
-}) {
-  return (
-    <DropdownMenuItem
-      onSelect={onSelect}
-      className={cn("justify-between gap-6", destructive && "text-destructive focus:bg-destructive/10 focus:text-destructive")}
-    >
-      {children}
-      <Icon aria-hidden className={cn("opacity-90", destructive ? "text-destructive" : "text-foreground")} />
-    </DropdownMenuItem>
-  );
-}
-
+/** The ••• menu. Phones: the iOS 30px tinted circle; desktop: a 32px tinted button like the toolbar's. */
 function MoreMenu({ actions, compact }: { actions: POActionsApi; compact: boolean }) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="plain" size="icon" aria-label="More actions" className="shrink-0">
-          <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-primary/20">
-            <Ellipsis className="!h-[18px] !w-[18px]" strokeWidth={2.5} />
-          </span>
-        </Button>
+        {compact ? (
+          <Button variant="plain" size="icon" aria-label="More actions" className="shrink-0">
+            <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-primary/20">
+              <Ellipsis className="!h-5 !w-5" strokeWidth={2.25} />
+            </span>
+          </Button>
+        ) : (
+          <Button variant="tinted" size="icon-sm" aria-label="More actions" title="More actions" className="shrink-0">
+            <Ellipsis className="!h-[18px] !w-[18px]" strokeWidth={2.25} />
+          </Button>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[15rem]">
-        <MenuItem icon={CopyPlus} onSelect={actions.duplicate}>
+      <DropdownMenuContent align={compact ? "end" : "start"} className="min-w-[14rem]">
+        <DropdownMenuItem onSelect={actions.duplicate}>
+          <CopyPlus aria-hidden />
           Duplicate
-        </MenuItem>
+        </DropdownMenuItem>
         {compact && (
           <>
-            <MenuItem icon={ArrowDownToLine} onSelect={actions.downloadPdf}>
+            <DropdownMenuItem onSelect={actions.downloadPdf}>
+              <ArrowDownToLine aria-hidden />
               Download PDF
-            </MenuItem>
-            <MenuItem icon={Printer} onSelect={actions.printPdf}>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={actions.printPdf}>
+              <Printer aria-hidden />
               Print
-            </MenuItem>
+            </DropdownMenuItem>
           </>
         )}
-        <MenuItem icon={FileSpreadsheet} onSelect={actions.exportCsv}>
+        <DropdownMenuItem onSelect={actions.exportCsv}>
+          <FileSpreadsheet aria-hidden />
           Export Line Items as CSV
-        </MenuItem>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         {actions.archived ? (
           <>
-            <MenuItem icon={ArchiveRestore} onSelect={actions.restore}>
+            <DropdownMenuItem onSelect={actions.restore}>
+              <ArchiveRestore aria-hidden />
               Restore
-            </MenuItem>
-            <MenuItem icon={Trash2} onSelect={actions.requestDelete} destructive>
-              Delete Permanently
-            </MenuItem>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={actions.requestDelete}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
+              <Trash2 aria-hidden />
+              Delete
+            </DropdownMenuItem>
           </>
         ) : (
-          <MenuItem icon={Archive} onSelect={actions.requestArchive}>
+          <DropdownMenuItem onSelect={actions.requestArchive}>
+            <Archive aria-hidden />
             Archive
-          </MenuItem>
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -397,17 +404,21 @@ function Spinning({ busy, icon: Icon }: { busy: boolean; icon: LucideIcon }) {
   return busy ? <Loader2 className="animate-spin" aria-hidden /> : <Icon aria-hidden />;
 }
 
-/** Right side of the nav bar. Phones: "Edit" + •••. Desktop (md+): a small toolbar. */
+/**
+ * Right side of the nav bar, in the app-wide order: ••• first, secondary actions, then the one
+ * primary action (Edit) rightmost. Phones: ••• + "Edit". Desktop (md+): a small toolbar.
+ */
 export function PONavActions({ actions }: { actions: POActionsApi }) {
   return (
     <>
       <div className="flex items-center md:hidden">
+        <MoreMenu actions={actions} compact />
         <Button variant="plain" onClick={actions.edit} className="h-11 px-2 text-[17px] font-normal">
           Edit
         </Button>
-        <MoreMenu actions={actions} compact />
       </div>
       <div className="hidden items-center gap-2 md:flex">
+        <MoreMenu actions={actions} compact={false} />
         {actions.canShare && (
           <Button variant="tinted" size="sm" onClick={actions.sharePdf} disabled={actions.busy === "share"}>
             <Spinning busy={actions.busy === "share"} icon={Share} />
@@ -426,7 +437,6 @@ export function PONavActions({ actions }: { actions: POActionsApi }) {
           <Pencil aria-hidden />
           Edit
         </Button>
-        <MoreMenu actions={actions} compact={false} />
       </div>
     </>
   );
