@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FilterChips } from "@/components/po-list/FilterChips";
+import { ReviewOlderOrders } from "@/components/po/ReviewOlderOrders";
 import { FiltersSheet } from "@/components/po-list/FiltersSheet";
 import { OrdersList, OrdersListSkeleton } from "@/components/po-list/OrdersList";
 import { OrdersTable, OrdersTableSkeleton } from "@/components/po-list/OrdersTable";
@@ -244,6 +245,13 @@ export default function PurchaseOrders() {
     } satisfies Record<DueFilter, number>;
   }, [list, filters]);
 
+  const reviewCount = useMemo(() => {
+    if (!list) return undefined;
+    const f: OrderFilters = { ...filters, review: false };
+    return list.filter((po) => po.needsReview && matchesFilters(po, f)).length;
+  }, [list, filters]);
+  const toReview = useMemo(() => (list ?? []).filter((po) => po.needsReview), [list]);
+
   const totals = useMemo(
     () =>
       filtered.reduce(
@@ -427,7 +435,14 @@ export default function PurchaseOrders() {
               onOpenFilters={() => setSheetOpen(true)}
               statusCounts={statusCounts}
               dueCounts={dueCounts}
+              reviewCount={filters.view === "active" ? reviewCount : 0}
             />
+          </div>
+        )}
+
+        {filters.review && filters.view === "active" && toReview.length > 0 && (
+          <div className="mt-3">
+            <ReviewOlderOrders orders={toReview} showReviewLink={false} />
           </div>
         )}
 

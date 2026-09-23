@@ -29,6 +29,7 @@ import {
   listStyles,
   poNumberExists,
   recoverDeletedPurchaseOrder,
+  reviewPurchaseOrders,
   saveSettings,
   setArchived,
   setPurchaseOrderStatus,
@@ -278,6 +279,15 @@ export function registerRoutes(app: Express): Server {
     const current = await getPurchaseOrder(id);
     if (!current) throw new HttpError(404, "Purchase order not found");
     res.json(await updatePurchaseOrder(id, parsePoWrite(req.body, current)));
+  }));
+
+  // Give older POs (created before status tracking) a status in one step.
+  app.post("/api/purchase-orders/review", route(async (req, res) => {
+    const { ids, status } = z
+      .object({ ids: z.array(z.number().int().positive()).min(1).max(5000), status: z.enum(PO_STATUSES) })
+      .parse(req.body);
+    const updated = await reviewPurchaseOrders(ids, status);
+    res.json({ updated });
   }));
 
   app.patch("/api/purchase-orders/:id/status", route(async (req, res) => {

@@ -6,6 +6,7 @@ import { PageContainer, PageHeader } from "@/components/layout/AppShell";
 import { ErrorState } from "@/components/common";
 import { ListSection, Section, SectionLink } from "@/components/kit";
 import { PORow } from "@/components/po/PORow";
+import { ReviewOlderOrders } from "@/components/po/ReviewOlderOrders";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KpiTiles, KpiTilesSkeleton } from "@/components/dashboard/KpiTiles";
@@ -91,6 +92,7 @@ export default function Dashboard() {
   const { data: orders, isLoading, error, refetch, isRefetching } = usePurchaseOrders();
   const summary = useMemo(() => (orders ? summarize(orders, now) : null), [orders, now]);
   const isEmpty = !!orders && orders.length === 0;
+  const toReview = useMemo(() => (orders ?? []).filter((po) => po.needsReview), [orders]);
 
   return (
     <>
@@ -128,6 +130,8 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-9">
             <KpiTiles summary={summary} />
+
+            <ReviewOlderOrders orders={toReview} />
 
             <div className="grid items-start gap-9 lg:grid-cols-2 lg:gap-6">
               <Section

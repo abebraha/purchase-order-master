@@ -11,6 +11,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm
 import {
   DEFAULT_SETTINGS,
   PO_STATUSES,
+  PO_STATUS_LABELS,
   REVISION_ACTION_LABELS,
   SettingsSchema,
   computeTotals,
@@ -107,7 +108,7 @@ async function loadItems(ex: Executor, poIds: number[]): Promise<Map<number, POI
   return byPo;
 }
 
-function toPurchaseOrder(row: PurchaseOrderRow, items: POItem[]): PurchaseOrder {
+function toPurchaseOrder(row: PurchaseOrderRow, items: POItem[], needsReview = false): PurchaseOrder {
   return {
     id: row.id,
     poNumber: row.poNumber,
@@ -125,9 +126,30 @@ function toPurchaseOrder(row: PurchaseOrderRow, items: POItem[]): PurchaseOrder 
     createdAt: toISO(row.createdAt)!,
     updatedAt: toISO(row.updatedAt),
     archivedAt: toISO(row.archivedAt),
+    needsReview,
     items,
     ...computeTotals(items),
   };
+}
+
+/**
+ * POs that only have the "baseline" history entry (they predate status tracking) and haven't
+ * been edited or given a status since.
+ */
+async function loadNeedsReview(ex: Executor, poIds: number[]): Promise<Set<number>> {
+  const result = new Set<number>();
+  if (poIds.length === 0) return result;
+  const rows = await ex
+    .select({
+      poId: poRevisions.poId,
+      baseline: sql<boolean>`bool_or(${poRevisions.action} = 'baseline')`,
+      reviewed: sql<boolean>`bool_or(${poRevisions.action} in ('created', 'updated', 'status', 'recovered'))`,
+    })
+    .from(poRevisions)
+    .where(inArray(poRevisions.poId, poIds))
+    .groupBy(poRevisions.poId);
+  for (const r of rows) if (r.baseline && !r.reviewed) result.add(r.poId);
+  return result;
 }
 
 export type ArchivedFilter = "exclude" | "only" | "include";
@@ -144,15 +166,16 @@ export async function listPurchaseOrders(archived: ArchivedFilter = "exclude"): 
     .from(purchaseOrders)
     .where(where)
     .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id));
-  const items = await loadItems(db, rows.map((r) => r.id));
-  return rows.map((r) => toPurchaseOrder(r, items.get(r.id) ?? []));
+  const ids = rows.map((r) => r.id);
+  const [items, review] = await Promise.all([loadItems(db, ids), loadNeedsReview(db, ids)]);
+  return rows.map((r) => toPurchaseOrder(r, items.get(r.id) ?? [], review.has(r.id)));
 }
 
 export async function getPurchaseOrder(id: number, ex: Executor = db): Promise<PurchaseOrder | null> {
   const [row] = await ex.select().from(purchaseOrders).where(eq(purchaseOrders.id, id));
   if (!row) return null;
-  const items = await loadItems(ex, [id]);
-  return toPurchaseOrder(row, items.get(id) ?? []);
+  const [items, review] = await Promise.all([loadItems(ex, [id]), loadNeedsReview(ex, [id])]);
+  return toPurchaseOrder(row, items.get(id) ?? [], review.has(id));
 }
 
 async function requirePurchaseOrder(id: number, ex: Executor = db): Promise<PurchaseOrder> {
@@ -335,6 +358,26 @@ export async function setPurchaseOrderStatus(id: number, status: POStatus): Prom
     await recordRevision(tx, after, "status", describeChanges(before, after).join("; "));
     return after;
   });
+}
+
+/**
+ * Gives older (pre-status-tracking) POs a status in one step. Always records a "status" history
+ * entry — even when the status doesn't change — so the PO counts as reviewed.
+ */
+export async function reviewPurchaseOrders(ids: number[], status: POStatus): Promise<number> {
+  let count = 0;
+  for (const id of Array.from(new Set(ids))) {
+    await db.transaction(async (tx) => {
+      const before = await getPurchaseOrder(id, tx);
+      if (!before) return;
+      await tx.update(purchaseOrders).set({ status, updatedAt: new Date() }).where(eq(purchaseOrders.id, id));
+      const after = await requirePurchaseOrder(id, tx);
+      const change = describeChanges(before, after).find((c) => c.startsWith("Status"));
+      await recordRevision(tx, after, "status", change ? `${change} (reviewed older order)` : `Reviewed older order — kept as ${PO_STATUS_LABELS[status]}`);
+      count++;
+    });
+  }
+  return count;
 }
 
 export async function setArchived(id: number, archived: boolean): Promise<PurchaseOrder> {

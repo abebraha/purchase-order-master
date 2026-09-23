@@ -14,7 +14,7 @@ export function sheetFilterCount(f: OrderFilters): number {
 
 /** True when anything narrows or reorders the list (the view itself doesn't count). */
 export function hasActiveFilters(f: OrderFilters): boolean {
-  return Boolean(f.q.trim() || f.status.length || f.due || sheetFilterCount(f));
+  return Boolean(f.q.trim() || f.status.length || f.due || f.review || sheetFilterCount(f));
 }
 
 /** Everything reset except which view (active / archived) is showing. */

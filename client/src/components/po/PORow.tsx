@@ -38,6 +38,8 @@ export function PORow({ po, href }: { po: PurchaseOrder; href?: string }) {
           <span className="font-medium text-[hsl(28_100%_38%)] dark:text-ios-orange">
             Cancel date {formatRelativeDays(po.cancelDate)} · {formatDateShort(po.cancelDate)}
           </span>
+        ) : po.needsReview ? (
+          <>Ordered {formatDate(po.orderDate)} · Status not reviewed</>
         ) : (
           <>
             Ordered {formatDate(po.orderDate)} · {formatNumber(po.totalQuantity)} units

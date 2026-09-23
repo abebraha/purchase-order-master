@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { CircleAlert, Clock, SlidersHorizontal, X } from "lucide-react";
+import { History, CircleAlert, Clock, SlidersHorizontal, X } from "lucide-react";
 import { PO_STATUSES, PO_STATUS_LABELS, type POStatus } from "@shared/po";
 import { StatusDot } from "@/components/StatusBadge";
 import type { DueFilter, OrderFilters } from "@/lib/filters";
@@ -81,6 +81,7 @@ export function FilterChips({
   onOpenFilters,
   statusCounts,
   dueCounts,
+  reviewCount,
 }: {
   filters: OrderFilters;
   onChange: (patch: Partial<OrderFilters>) => void;
@@ -88,6 +89,8 @@ export function FilterChips({
   /** Orders per status given the other filters (omit while loading). */
   statusCounts?: Record<POStatus, number>;
   dueCounts?: Record<DueFilter, number>;
+  /** Older POs that still need a status (shown as a chip only when there are some). */
+  reviewCount?: number;
 }) {
   const sheetCount = sheetFilterCount(filters);
   const toggleStatus = (s: POStatus) =>
@@ -168,6 +171,12 @@ export function FilterChips({
             <CircleAlert strokeWidth={2.25} className={filters.due === "overdue" ? undefined : "text-destructive"} />
             Overdue
           </Chip>
+          {(filters.review || (reviewCount ?? 0) > 0) && (
+            <Chip selected={filters.review} onClick={() => onChange({ review: !filters.review })} count={reviewCount}>
+              <History strokeWidth={2.25} className={filters.review ? undefined : "text-ios-indigo"} />
+              Needs Review
+            </Chip>
+          )}
           <Divider />
         </>
       )}

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useSetPurchaseOrderStatus } from "@/lib/api";
+import { useReviewPurchaseOrders, useSetPurchaseOrderStatus } from "@/lib/api";
 import { isActivePO, isDueSoon, isOverdue } from "@/lib/filters";
 import { daysFromToday, formatDate, formatMoney, formatNumber, parseDate, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -36,16 +36,22 @@ const NEXT_STATUS: Partial<Record<POStatus, POStatus>> = {
 
 export function StatusSection({ po }: { po: PurchaseOrder }) {
   const { toast } = useToast();
-  const mutation = useSetPurchaseOrderStatus();
+  const setStatus = useSetPurchaseOrderStatus();
+  const review = useReviewPurchaseOrders();
+  // Older POs (created before status tracking) go through "review", which records a history
+  // entry even when the status stays the same — confirming "Open" counts as reviewed.
+  const mutation = po.needsReview ? review : setStatus;
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<POStatus | null>(null);
   const label = `PO #${po.poNumber}`;
-  const next = NEXT_STATUS[po.status];
+  const next = po.needsReview ? "received" : NEXT_STATUS[po.status];
 
   const apply = (status: POStatus) => {
     setPendingStatus(status);
-    mutation.mutate(
-      { id: po.id, status },
+    const run = po.needsReview
+      ? (opts: Parameters<typeof review.mutate>[1]) => review.mutate({ ids: [po.id], status }, opts)
+      : (opts: Parameters<typeof setStatus.mutate>[1]) => setStatus.mutate({ id: po.id, status }, opts);
+    run(
       {
         onSuccess: () => {
           setConfirmCancel(false);
@@ -59,14 +65,20 @@ export function StatusSection({ po }: { po: PurchaseOrder }) {
   };
 
   const choose = (status: POStatus) => {
-    if (status === po.status || mutation.isPending) return;
+    if ((status === po.status && !po.needsReview) || mutation.isPending) return;
     if (status === "cancelled") setConfirmCancel(true);
     else apply(status);
   };
 
   return (
     <>
-      <ListSection>
+      <ListSection
+        footer={
+          po.needsReview
+            ? "This order was created before status tracking, so it's marked Open. Choose its current status — pick Open to keep it."
+            : undefined
+        }
+      >
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button

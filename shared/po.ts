@@ -91,6 +91,12 @@ export interface PurchaseOrder {
   createdAt: string;
   updatedAt: string | null;
   archivedAt: string | null;
+  /**
+   * True for purchase orders created before status tracking existed that nobody has edited or
+   * given a status since. Their status/dates weren't tracked, so they're kept out of
+   * "overdue" / "cancel soon" alerts and offered for a quick review instead.
+   */
+  needsReview: boolean;
   items: POItem[];
   itemCount: number;
   totalQuantity: number;

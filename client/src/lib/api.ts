@@ -168,6 +168,15 @@ export function useSetPurchaseOrderStatus() {
   });
 }
 
+/** Give older POs (created before status tracking) a status; each gets a history entry. */
+export function useReviewPurchaseOrders() {
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: number[]; status: POStatus }) =>
+      api<{ updated: number }>("POST", "/api/purchase-orders/review", { ids, status }),
+    onSuccess: () => invalidatePurchaseOrders(),
+  });
+}
+
 export function useArchivePurchaseOrder() {
   return useMutation({
     mutationFn: (id: number) => api<PurchaseOrder>("POST", `/api/purchase-orders/${id}/archive`),

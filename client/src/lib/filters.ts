@@ -13,6 +13,7 @@ import { daysFromToday, parseDate } from "@/lib/format";
  *   sort    newest | oldest | po | cancel | amount
  *   from,to order-date range, yyyy-MM-dd (inclusive)
  *   due     soon (cancel date within DUE_SOON_DAYS) | overdue (cancel date passed) — active POs only
+ *   review  1 = only older POs that still need a status (created before status tracking)
  */
 export type OrderSort = "newest" | "oldest" | "po" | "cancel" | "amount";
 export type DueFilter = "soon" | "overdue";
@@ -26,6 +27,7 @@ export interface OrderFilters {
   from: string;
   to: string;
   due: DueFilter | "";
+  review: boolean;
 }
 
 export const DEFAULT_FILTERS: OrderFilters = {
@@ -37,6 +39,7 @@ export const DEFAULT_FILTERS: OrderFilters = {
   from: "",
   to: "",
   due: "",
+  review: false,
 };
 
 export const SORT_OPTIONS: Array<{ value: OrderSort; label: string }> = [
@@ -69,6 +72,7 @@ export function parseOrderFilters(search: string): OrderFilters {
     from: date(p.get("from")),
     to: date(p.get("to")),
     due: due === "soon" || due === "overdue" ? due : "",
+    review: p.get("review") === "1",
   };
 }
 
@@ -84,6 +88,7 @@ export function serializeOrderFilters(filters: Partial<OrderFilters>): string {
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
   if (f.due) p.set("due", f.due);
+  if (f.review) p.set("review", "1");
   return p.toString();
 }
 
@@ -97,14 +102,21 @@ export function isActivePO(po: Pick<PurchaseOrder, "status">): boolean {
   return ACTIVE_STATUSES.includes(po.status);
 }
 
-/** Active PO whose cancel date has passed. */
-export function isOverdue(po: Pick<PurchaseOrder, "status" | "cancelDate">): boolean {
+type DueFields = Pick<PurchaseOrder, "status" | "cancelDate"> & Partial<Pick<PurchaseOrder, "needsReview">>;
+
+/**
+ * Active PO whose cancel date has passed. Older POs awaiting review are excluded: the old app
+ * never recorded real ship dates or statuses, so their dates would raise false alarms.
+ */
+export function isOverdue(po: DueFields): boolean {
+  if (po.needsReview) return false;
   const d = daysFromToday(po.cancelDate);
   return isActivePO(po) && d !== null && d < 0;
 }
 
-/** Active PO whose cancel date is today or within the next `days` days. */
-export function isDueSoon(po: Pick<PurchaseOrder, "status" | "cancelDate">, days = DUE_SOON_DAYS): boolean {
+/** Active PO whose cancel date is today or within the next `days` days (older POs excluded). */
+export function isDueSoon(po: DueFields, days = DUE_SOON_DAYS): boolean {
+  if (po.needsReview) return false;
   const d = daysFromToday(po.cancelDate);
   return isActivePO(po) && d !== null && d >= 0 && d <= days;
 }
@@ -129,6 +141,7 @@ export function matchesFilters(po: PurchaseOrder, f: OrderFilters): boolean {
   if (f.type && po.poType !== f.type) return false;
   if (f.due === "soon" && !isDueSoon(po)) return false;
   if (f.due === "overdue" && !isOverdue(po)) return false;
+  if (f.review && !po.needsReview) return false;
   if (f.from || f.to) {
     const order = parseDate(po.orderDate);
     if (!order) return false;
