@@ -2,6 +2,7 @@
  * Routes:
  *   /purchase-orders/new            create
  *   /purchase-orders/new?from=<id>  duplicate an existing PO
+ *   /purchase-orders/new?customer=<id>  create, filled in from a saved customer
  *   /purchase-orders/:id/edit       edit
  * Loads what the form needs, then hands off to <PurchaseOrderForm/>.
  */
@@ -11,10 +12,16 @@ import { DEFAULT_SETTINGS } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
 import { ErrorState } from "@/components/common";
 import { PurchaseOrderForm } from "@/components/po/PurchaseOrderForm";
-import { valuesForCreate, valuesForDuplicate, valuesFromPurchaseOrder, type EditorMode } from "@/components/po/editor-model";
+import {
+  valuesForCreate,
+  valuesForDuplicate,
+  valuesFromPurchaseOrder,
+  valuesWithCustomer,
+  type EditorMode,
+} from "@/components/po/editor-model";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError, useNextPoNumber, usePurchaseOrder, useSettings } from "@/lib/api";
+import { ApiError, useCustomers, useNextPoNumber, usePurchaseOrder, useSettings } from "@/lib/api";
 
 function parseId(value: string | null | undefined): number | undefined {
   if (!value || !/^\d+$/.test(value)) return undefined;
@@ -26,6 +33,7 @@ export default function PurchaseOrderEditor() {
   const [isEditRoute, params] = useRoute<{ id: string }>("/purchase-orders/:id/edit");
   const search = useSearch();
   const fromParam = isEditRoute ? null : new URLSearchParams(search).get("from");
+  const customerParam = isEditRoute || fromParam ? undefined : parseId(new URLSearchParams(search).get("customer"));
 
   const editId = isEditRoute ? parseId(params?.id) : undefined;
   const fromId = parseId(fromParam);
@@ -35,18 +43,23 @@ export default function PurchaseOrderEditor() {
   const settingsQ = useSettings();
   const poQ = usePurchaseOrder(loadId);
   const nextQ = useNextPoNumber(mode !== "edit");
+  // Loaded here so the customer picker is ready when the form appears.
+  const customersQ = useCustomers();
 
   const settings = settingsQ.data ?? (settingsQ.isError ? DEFAULT_SETTINGS : undefined);
   const po = poQ.data;
-  const ready = !!settings && (mode === "create" || !!po);
+  // "New PO for this customer" waits for the customer list (if it fails, the form starts blank).
+  const ready = !!settings && (mode === "create" || !!po) && !(customerParam && customersQ.isLoading);
 
   // Computed once per screen (the form keeps its own state after mounting).
-  const formKey = `${mode}:${loadId ?? "new"}`;
+  const formKey = `${mode}:${loadId ?? "new"}:${customerParam ?? ""}`;
   const defaultValues = useMemo(() => {
     if (!ready || !settings) return null;
     if (mode === "edit" && po) return valuesFromPurchaseOrder(po);
     if (mode === "duplicate" && po) return valuesForDuplicate(po, nextQ.data?.poNumber ?? "");
-    return valuesForCreate(settings, nextQ.data?.poNumber ?? "");
+    const values = valuesForCreate(settings, nextQ.data?.poNumber ?? "");
+    const customer = customerParam ? customersQ.data?.find((c) => c.id === customerParam) : undefined;
+    return customer ? valuesWithCustomer(values, customer, settings) : values;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formKey, ready]);
 
@@ -141,6 +154,7 @@ function EditorSkeleton({ title }: { title: string }) {
       />
       <PageContainer width="narrow">
         <div className="space-y-7 md:space-y-8" aria-busy="true" aria-label="Loading purchase order">
+          {group("customer", <Skeleton className="h-11 rounded-[10px] md:h-9" />)}
           {group(
             "order",
             <div className="grid gap-4 md:grid-cols-2 md:gap-x-5">
