@@ -27,12 +27,12 @@ export function AccountSection() {
     <>
       <ListSection
         header="Account"
-        footer="To sign out every device at once, change the app password (APP_PASSWORD) on Railway."
+        footer="All purchase orders, styles and settings belong to this account. To sign out every device at once, change APP_PASSWORD on Railway."
       >
         <ListRow
           leading={<IconTile icon={ShieldCheck} color="green" />}
-          title="Signed In"
-          subtitle={session?.remembered ? "Stays signed in on this device" : "Until you close this browser"}
+          title={session?.email ?? "Signed In"}
+          subtitle={session?.remembered ? "Stays signed in on this device" : "Signed in until you close this browser"}
           value={session?.signedInAt ? <span className="text-[15px] md:text-[13px]">{formatDate(session.signedInAt, "MMM d")}</span> : undefined}
         />
         <ListRow onClick={() => setConfirmOpen(true)} accessory="none" inset="1rem">
@@ -44,7 +44,7 @@ export function AccountSection() {
         open={confirmOpen}
         onOpenChange={(open) => !pending && setConfirmOpen(open)}
         title="Sign Out?"
-        description="You'll need the team password to sign in again on this device."
+        description="You'll need your email and password to sign in again on this device."
         confirmLabel="Sign Out"
         destructive
         pending={pending}

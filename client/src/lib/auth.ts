@@ -7,9 +7,11 @@ import { api } from "./api";
 import { onUnauthorized, queryClient } from "./queryClient";
 
 export interface AuthSession {
-  /** False until APP_PASSWORD is set on the server. */
+  /** False until APP_EMAIL and APP_PASSWORD are set on the server. */
   configured: boolean;
   authenticated: boolean;
+  /** The account this device is signed in to. */
+  email: string | null;
   signedInAt: string | null;
   /** "Keep me signed in" was on when this device signed in. */
   remembered: boolean;
@@ -34,8 +36,8 @@ onUnauthorized(() => {
   void queryClient.invalidateQueries({ queryKey: SESSION_KEY }, { cancelRefetch: false });
 });
 
-export async function signIn(password: string, remember: boolean): Promise<void> {
-  const session = await api<AuthSession>("POST", "/api/auth/login", { password, remember });
+export async function signIn(email: string, password: string, remember: boolean): Promise<void> {
+  const session = await api<AuthSession>("POST", "/api/auth/login", { email, password, remember });
   queryClient.setQueryData(SESSION_KEY, session);
   // Reload whatever failed or went stale while signed out.
   void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] });

@@ -1,13 +1,13 @@
 /**
- * Sign-in for the whole app: one shared team password (APP_PASSWORD, set on Railway) and
- * long-lived, httpOnly session cookies stored in Postgres.
+ * Sign-in for the whole app: one company account (APP_EMAIL + APP_PASSWORD, set on Railway) and
+ * long-lived, httpOnly session cookies stored in Postgres. All data belongs to that account.
  *
- *   POST /api/auth/login    { password, remember? }  → signs this device in
- *   POST /api/auth/logout                            → signs this device out
- *   GET  /api/auth/session                           → { configured, authenticated, … }
+ *   POST /api/auth/login    { email, password, remember? }  → signs this device in
+ *   POST /api/auth/logout                                   → signs this device out
+ *   GET  /api/auth/session                                  → { configured, authenticated, … }
  *
- * Every other /api route answers 401 without a valid session. Changing APP_PASSWORD signs every
- * device out. If APP_PASSWORD isn't set, sign-in is disabled and the API stays locked.
+ * Every other /api route answers 401 without a valid session. Changing APP_EMAIL or APP_PASSWORD
+ * signs every device out. If either isn't set, sign-in is disabled and the API stays locked.
  */
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
@@ -20,7 +20,7 @@ import { log } from "./vite";
 
 declare module "express-session" {
   interface SessionData {
-    /** Set on sign-in. `v` identifies the password that was used (see `fingerprint`). */
+    /** Set on sign-in. `v` identifies the account credentials that were used (see `fingerprint`). */
     auth?: { v: string; at: number };
   }
 }
@@ -30,12 +30,16 @@ export const SESSION_COOKIE = "po.sid";
 const REMEMBER_MS = 365 * 24 * 60 * 60 * 1000;
 
 const NOT_CONFIGURED_MESSAGE =
-  "Sign-in isn't set up yet. Add an APP_PASSWORD variable to this app on Railway, then redeploy.";
+  "Sign-in isn't set up yet. Add APP_EMAIL and APP_PASSWORD variables to this app on Railway, then redeploy.";
+const WRONG_CREDENTIALS_MESSAGE = "That email or password isn't right. Try again.";
 const SIGN_IN_REQUIRED_MESSAGE = "Please sign in to continue.";
 
 // ---------------------------------------------------------------------------
-// Password
+// Account
 // ---------------------------------------------------------------------------
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const sha256 = (value: string | Buffer) => createHash("sha256").update(value).digest();
 
 function scryptKey(password: string, salt: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -45,24 +49,29 @@ function scryptKey(password: string, salt: Buffer): Promise<Buffer> {
   });
 }
 
-interface PasswordConfig {
-  /** scrypt(APP_PASSWORD); null when no password is configured. */
+interface Account {
+  /** APP_EMAIL, lower-cased; null when sign-in isn't configured. */
+  email: string | null;
+  /** scrypt(APP_PASSWORD); null when sign-in isn't configured. */
   key: Buffer | null;
   salt: Buffer;
-  /** Stored in each session; changes whenever APP_PASSWORD does, which ends older sessions. */
+  /** Stored in each session; changes whenever APP_EMAIL or APP_PASSWORD does, ending older sessions. */
   fingerprint: string | null;
 }
 
-async function loadPasswordConfig(secret: string): Promise<PasswordConfig> {
+async function loadAccount(secret: string): Promise<Account> {
   const salt = createHmac("sha256", secret).update("po-master:password-salt").digest();
+  const email = normalizeEmail(process.env.APP_EMAIL ?? "");
   const password = process.env.APP_PASSWORD?.trim() ?? "";
-  if (!password) {
-    log("APP_PASSWORD is not set: sign-in is disabled and every API request will be refused.", "auth");
-    return { key: null, salt, fingerprint: null };
+  const missing = [!email && "APP_EMAIL", !password && "APP_PASSWORD"].filter(Boolean);
+  if (missing.length) {
+    log(`${missing.join(" and ")} not set: sign-in is disabled and every API request will be refused.`, "auth");
+    return { email: null, key: null, salt, fingerprint: null };
   }
   if (password.length < 8) log("APP_PASSWORD is shorter than 8 characters; a longer one is safer.", "auth");
   const key = await scryptKey(password, salt);
-  return { key, salt, fingerprint: createHash("sha256").update(key).digest("hex").slice(0, 32) };
+  const fingerprint = createHash("sha256").update(email).update("\0").update(key).digest("hex").slice(0, 32);
+  return { email, key, salt, fingerprint };
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +137,7 @@ class FailureLimiter {
 }
 
 const WINDOW_MS = 15 * 60 * 1000;
-/** Per device/IP: 10 wrong passwords per 15 minutes. */
+/** Per device/IP: 10 failed sign-ins per 15 minutes. */
 const perIpLimiter = new FailureLimiter(10, WINDOW_MS);
 /** Across everyone: caps guessing spread over many IPs. Signed-in devices are unaffected. */
 const globalLimiter = new FailureLimiter(100, WINDOW_MS);
@@ -143,6 +152,7 @@ function describeWait(ms: number): string {
 // ---------------------------------------------------------------------------
 
 const loginSchema = z.object({
+  email: z.string().max(320),
   password: z.string().max(256),
   remember: z.boolean().optional().default(true),
 });
@@ -157,7 +167,7 @@ function promisified(fn: (cb: (err?: unknown) => void) => void): Promise<void> {
  */
 export async function setupAuth(app: Express) {
   const secret = await loadSessionSecret();
-  const password = await loadPasswordConfig(secret);
+  const account = await loadAccount(secret);
 
   // Railway terminates HTTPS in front of the app: trust its one proxy hop so secure cookies
   // work and req.ip is the visitor's address (for rate limiting).
@@ -172,13 +182,14 @@ export async function setupAuth(app: Express) {
   };
 
   const isAuthenticated = (req: Request) =>
-    Boolean(password.fingerprint && req.session?.auth?.v === password.fingerprint);
+    Boolean(account.fingerprint && req.session?.auth?.v === account.fingerprint);
 
   const sessionInfo = (req: Request) => {
     const authenticated = isAuthenticated(req);
     return {
-      configured: Boolean(password.key),
+      configured: Boolean(account.key),
       authenticated,
+      email: authenticated ? account.email : null,
       signedInAt: authenticated ? new Date(req.session.auth!.at).toISOString() : null,
       remembered: authenticated && typeof req.session.cookie.originalMaxAge === "number",
     };
@@ -210,7 +221,7 @@ export async function setupAuth(app: Express) {
 
   app.post("/api/auth/login", authJson, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!password.key) {
+      if (!account.key || !account.email) {
         return res.status(503).json({ error: NOT_CONFIGURED_MESSAGE, message: NOT_CONFIGURED_MESSAGE });
       }
 
@@ -223,27 +234,29 @@ export async function setupAuth(app: Express) {
       }
 
       const body = loginSchema.safeParse(req.body ?? {});
-      if (!body.success || !body.data.password.trim()) {
-        return res.status(400).json({ error: "Enter the password.", message: "Enter the password." });
+      if (!body.success || !body.data.email.trim() || !body.data.password.trim()) {
+        const message = "Enter your email and password.";
+        return res.status(400).json({ error: message, message });
       }
 
-      const attempt = await scryptKey(body.data.password, password.salt);
-      if (!timingSafeEqual(attempt, password.key)) {
+      // Both checks always run, and a wrong email or password gets the same answer.
+      const emailMatches = timingSafeEqual(sha256(normalizeEmail(body.data.email)), sha256(account.email));
+      const passwordMatches = timingSafeEqual(await scryptKey(body.data.password, account.salt), account.key);
+      if (!emailMatches || !passwordMatches) {
         perIpLimiter.fail(ip);
         globalLimiter.fail("*");
         log(`sign-in failed from ${ip}`, "auth");
-        const message = "That password isn't right. Try again.";
-        return res.status(401).json({ error: message, message });
+        return res.status(401).json({ error: WRONG_CREDENTIALS_MESSAGE, message: WRONG_CREDENTIALS_MESSAGE });
       }
 
       perIpLimiter.reset(ip);
       // New session id on sign-in (prevents session fixation).
       await promisified((cb) => req.session.regenerate(cb));
-      req.session.auth = { v: password.fingerprint!, at: Date.now() };
+      req.session.auth = { v: account.fingerprint!, at: Date.now() };
       // Without "keep me signed in" the cookie lasts until the browser is closed.
       if (body.data.remember) req.session.cookie.maxAge = REMEMBER_MS;
       await promisified((cb) => req.session.save(cb));
-      log(`signed in from ${ip}${body.data.remember ? " (remembered)" : ""}`, "auth");
+      log(`${account.email} signed in from ${ip}${body.data.remember ? " (remembered)" : ""}`, "auth");
       res.json(sessionInfo(req));
     } catch (error) {
       next(error);
@@ -253,7 +266,7 @@ export async function setupAuth(app: Express) {
   app.post("/api/auth/logout", (req, res, next) => {
     const done = () => {
       res.clearCookie(SESSION_COOKIE, { path: "/", httpOnly: true, sameSite: "lax", secure: req.secure });
-      res.json({ configured: Boolean(password.key), authenticated: false, signedInAt: null, remembered: false });
+      res.json({ configured: Boolean(account.key), authenticated: false, email: null, signedInAt: null, remembered: false });
     };
     if (!req.session) return done();
     req.session.destroy((err) => (err ? next(err) : done()));
@@ -262,10 +275,10 @@ export async function setupAuth(app: Express) {
   // Everything else under /api requires a signed-in session.
   app.use("/api", (req, res, next) => {
     if (isAuthenticated(req)) return next();
-    // A session from before a password change: remove it so it can't be tried again.
+    // A session from before the email or password changed: remove it so it can't be tried again.
     if (req.session?.auth) req.session.destroy(() => {});
     res.status(401).json({ error: "Sign in required", message: SIGN_IN_REQUIRED_MESSAGE });
   });
 
-  if (password.key) log("sign-in enabled", "auth");
+  if (account.key) log(`sign-in enabled for ${account.email}`, "auth");
 }

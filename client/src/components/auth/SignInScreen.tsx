@@ -11,13 +11,13 @@ export type SignInMode =
   | "sign-in"
   /** Signed out while using the app; the screen underneath is kept. */
   | "expired"
-  /** The server has no APP_PASSWORD yet. */
+  /** The server has no APP_EMAIL / APP_PASSWORD yet. */
   | "not-configured"
   /** Couldn't reach the server to check. */
   | "offline";
 
 const COPY: Record<"sign-in" | "expired", { title: string; subtitle: string }> = {
-  "sign-in": { title: "PO Master", subtitle: "Enter the team password to continue." },
+  "sign-in": { title: "PO Master", subtitle: "Sign in with your company account." },
   expired: { title: "Sign In Again", subtitle: "You were signed out. Sign in to continue where you left off." },
 };
 
@@ -29,6 +29,23 @@ function shake(el: HTMLElement | null) {
     [0, -8, 8, -6, 6, -3, 0].map((x) => ({ transform: `translateX(${x}px)` })),
     { duration: 400, easing: "ease-in-out" },
   );
+}
+
+// The last email used on this device, so signing back in only needs the password.
+const EMAIL_KEY = "po-sign-in-email";
+function readSavedEmail(): string {
+  try {
+    return window.localStorage.getItem(EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+function saveEmail(email: string) {
+  try {
+    window.localStorage.setItem(EMAIL_KEY, email);
+  } catch {
+    // Storage blocked (private mode) — prefilling is only a convenience.
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -59,8 +76,8 @@ export function SignInScreen({
               title="Sign-In Isn't Set Up"
               body={
                 <>
-                  Add an <code className="rounded bg-secondary px-1 py-0.5 text-[0.9em] text-foreground">APP_PASSWORD</code>{" "}
-                  variable to this app on Railway, then redeploy. Your purchase orders stay locked until then.
+                  Add <Code>APP_EMAIL</Code> and <Code>APP_PASSWORD</Code> variables to this app on Railway, then redeploy.
+                  Your purchase orders stay locked until then.
                 </>
               }
               onRetry={onRetry}
@@ -84,6 +101,10 @@ export function SignInScreen({
   );
 }
 
+function Code({ children }: { children: ReactNode }) {
+  return <code className="rounded bg-secondary px-1 py-0.5 text-[0.9em] text-foreground">{children}</code>;
+}
+
 function AppIcon() {
   return (
     <img
@@ -95,10 +116,13 @@ function AppIcon() {
 }
 
 function SignInForm({ mode }: { mode: "sign-in" | "expired" }) {
+  const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
+  const emailRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const [email, setEmail] = useState(readSavedEmail);
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -110,15 +134,16 @@ function SignInForm({ mode }: { mode: "sign-in" | "expired" }) {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (pending) return;
-    if (!password.trim()) {
-      setError("Enter the password.");
-      inputRef.current?.focus();
+    if (!email.trim() || !password.trim()) {
+      setError("Enter your email and password.");
+      (email.trim() ? inputRef : emailRef).current?.focus();
       return;
     }
     setPending(true);
     setError(null);
     try {
-      await signIn(password, remember);
+      await signIn(email.trim(), password, remember);
+      saveEmail(email.trim());
       // Signed in: the app replaces this screen.
     } catch (err) {
       setError(errorMessage(err));
@@ -132,6 +157,9 @@ function SignInForm({ mode }: { mode: "sign-in" | "expired" }) {
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => setCapsLock(e.getModifierState?.("CapsLock") ?? false);
+  const describedBy = error ? errorId : undefined;
+  const inputClass =
+    "h-[52px] w-full min-w-0 bg-transparent pl-4 text-[17px] text-foreground outline-none placeholder:text-muted-foreground read-only:opacity-60 md:h-12 md:text-[15px]";
 
   return (
     <>
@@ -142,19 +170,36 @@ function SignInForm({ mode }: { mode: "sign-in" | "expired" }) {
       </header>
 
       <form onSubmit={onSubmit} noValidate>
-        {/* Lets Keychain / password managers file the password under this app. */}
-        <input
-          type="text"
-          name="username"
-          autoComplete="username"
-          value="PO Master"
-          readOnly
-          tabIndex={-1}
-          aria-hidden
-          className="sr-only"
-        />
-
         <div ref={cardRef} className="overflow-hidden rounded-xl bg-card">
+          <label htmlFor={emailId} className="sr-only">
+            Email
+          </label>
+          <input
+            ref={emailRef}
+            id={emailId}
+            name="email"
+            type="email"
+            inputMode="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="Email"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+            autoFocus={!email}
+            readOnly={pending}
+            aria-invalid={Boolean(error)}
+            aria-describedby={describedBy}
+            className={cn(inputClass, "pr-4")}
+          />
+
+          <div className="ml-4 h-px bg-border/80" aria-hidden />
+
           <div className="relative flex items-center">
             <label htmlFor={passwordId} className="sr-only">
               Password
@@ -177,11 +222,11 @@ function SignInForm({ mode }: { mode: "sign-in" | "expired" }) {
               autoCorrect="off"
               spellCheck={false}
               enterKeyHint="go"
-              autoFocus
+              autoFocus={Boolean(email)}
               readOnly={pending}
               aria-invalid={Boolean(error)}
-              aria-describedby={error ? errorId : undefined}
-              className="h-[52px] w-full min-w-0 bg-transparent pl-4 pr-12 text-[17px] text-foreground outline-none placeholder:text-muted-foreground read-only:opacity-60 md:h-12 md:text-[15px]"
+              aria-describedby={describedBy}
+              className={cn(inputClass, "pr-12")}
             />
             <button
               type="button"
