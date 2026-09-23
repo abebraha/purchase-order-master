@@ -327,7 +327,7 @@ export function OrderSection({
     <FormSection title="Order" id="po-order">
       {isEdit ? (
         <>
-          <div className="grid gap-4 md:grid-cols-2 md:gap-x-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-x-5">
             {poNumberField}
             {statusField}
             {poTypeField}
@@ -342,7 +342,7 @@ export function OrderSection({
         </>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2 md:gap-x-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-x-5">
             {poNumberField}
             {poTypeField}
             {termsField}

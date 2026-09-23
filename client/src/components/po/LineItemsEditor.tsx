@@ -4,7 +4,7 @@
  *   Desktop — a compact Numbers-like grid inside one card.
  * Both end with an "Add Item" row and a totals line. Must be rendered inside the editor's <Form>.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useFormContext, useWatch, type FieldError } from "react-hook-form";
 import { ArrowDown, ArrowUp, CopyPlus, Ellipsis, Plus, Trash2, type LucideIcon } from "lucide-react";
 import { Field, IconTile, ListRow, ListSection } from "@/components/kit";
@@ -45,10 +45,16 @@ interface ItemActions {
 }
 
 // Numbers-style grid: Style # | Color | Description | Qty | Unit Price | Amount | •••
+// Every row is its own grid, so all tracks except Color/Description are fixed (rows stay aligned).
+// Description gets the largest share (style numbers are short). Tuned so typical values
+// ("SL4200", "Heather Grey", "Seamless high-waist brief", "12,000", "$0.00833", "$29,400.00") fit
+// from 768px (tablet) and at 1024px (next to the sidebar).
 const GRID_COLS =
-  "grid-cols-[minmax(0,1.25fr)_minmax(0,0.9fr)_minmax(0,1.6fr)_76px_96px_minmax(88px,auto)_32px]";
+  "gap-x-1.5 grid-cols-[90px_minmax(0,1.2fr)_minmax(0,2fr)_62px_82px_80px_28px] xl:gap-x-2 xl:grid-cols-[minmax(104px,0.7fr)_minmax(0,1.2fr)_minmax(0,2.2fr)_72px_92px_96px_32px]";
+/** Horizontal padding of the grid rows (a little tighter below xl, where width is scarce). */
+const GRID_PAD = "px-3 xl:px-4";
 
-export function LineItemsEditor() {
+export function LineItemsEditor({ onStyleAdded }: { onStyleAdded?: (selection: StyleSelection) => void } = {}) {
   const { control, getValues, setValue, formState } = useFormContext<EditorValues>();
   const { fields, append, insert, remove, move } = useFieldArray({ control, name: "items" });
   const items = useWatch({ control, name: "items" });
@@ -84,6 +90,7 @@ export function LineItemsEditor() {
   };
 
   const selectStyle = (index: number, sel: StyleSelection) => {
+    if (sel.created) onStyleAdded?.(sel);
     const opts = { shouldDirty: true, shouldValidate: formState.isSubmitted };
     const current = getValues(`items.${index}`);
     setValue(`items.${index}.styleId`, sel.styleId, { shouldDirty: true });
@@ -147,7 +154,7 @@ export function LineItemsEditor() {
         {isDesktop ? (
           <div className="overflow-hidden rounded-xl bg-card">
             {fields.length > 0 && (
-              <div className={cn("grid items-center gap-2 px-4 pb-1.5 pt-3 text-xs font-medium text-muted-foreground", GRID_COLS)}>
+              <div className={cn("grid items-center pb-1.5 pt-3 text-xs font-medium text-muted-foreground", GRID_COLS, GRID_PAD)}>
                 <span>Style #</span>
                 <span>Color</span>
                 <span>Description</span>
@@ -227,9 +234,10 @@ function TotalsRow({ summary, amount }: { summary: string; amount: number }) {
   );
 }
 
+/** Menu row in the app's standard layout: icon on the left, then the label. */
 function MenuItem({ icon: Icon, children, onSelect, destructive, disabled }: {
   icon: LucideIcon;
-  children: ReactNode;
+  children: string;
   onSelect: () => void;
   destructive?: boolean;
   disabled?: boolean;
@@ -238,10 +246,10 @@ function MenuItem({ icon: Icon, children, onSelect, destructive, disabled }: {
     <DropdownMenuItem
       onSelect={onSelect}
       disabled={disabled}
-      className={cn("justify-between gap-6", destructive && "text-destructive focus:bg-destructive/10 focus:text-destructive")}
+      className={cn(destructive && "text-destructive focus:bg-destructive/10 focus:text-destructive")}
     >
+      <Icon aria-hidden />
       {children}
-      <Icon aria-hidden className={cn("opacity-90", destructive ? "text-destructive" : "text-foreground")} />
     </DropdownMenuItem>
   );
 }
@@ -256,7 +264,7 @@ function ItemMenu({ actions, compact }: { actions: ItemActions; compact?: boolea
           aria-label={`Item ${index + 1} options`}
           className={cn(
             "flex shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/30",
-            compact ? "h-8 w-8" : "h-11 w-11",
+            compact ? "h-8 w-7 xl:w-8" : "h-11 w-11",
           )}
         >
           <span
@@ -291,7 +299,7 @@ function ItemMenu({ actions, compact }: { actions: ItemActions; compact?: boolea
 /** "$" adornment for price inputs. */
 function PriceAdornment({ className }: { className?: string }) {
   return (
-    <span aria-hidden className={cn("pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground md:left-2.5", className)}>
+    <span aria-hidden className={cn("pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground md:left-2", className)}>
       $
     </span>
   );
@@ -403,8 +411,8 @@ function ItemGridRow({ fieldId, index, items, errors, openStyleFor, setOpenStyle
     : [];
 
   return (
-    <div data-item-id={fieldId} className="scroll-mt-24 px-4 py-2 transition-colors hover:bg-accent/30">
-      <div className={cn("grid items-center gap-2", GRID_COLS)}>
+    <div data-item-id={fieldId} className={cn("scroll-mt-24 py-2 transition-colors hover:bg-accent/30", GRID_PAD)}>
+      <div className={cn("grid items-center", GRID_COLS)}>
         <StyleCombobox
           variant="field"
           id={`item-${fieldId}-style`}
@@ -423,6 +431,7 @@ function ItemGridRow({ fieldId, index, items, errors, openStyleFor, setOpenStyle
           aria-label={`${label} color`}
           placeholder="Color"
           className="px-2.5"
+          title={item?.color || undefined}
           aria-invalid={!!err?.color}
           {...register(`items.${index}.color`)}
         />
@@ -440,7 +449,8 @@ function ItemGridRow({ fieldId, index, items, errors, openStyleFor, setOpenStyle
           inputMode="numeric"
           autoComplete="off"
           placeholder="0"
-          className="px-2.5 text-right tabular-nums"
+          className="px-2 text-right tabular-nums"
+          title={item?.quantity || undefined}
           aria-invalid={!!err?.quantity}
           {...register(`items.${index}.quantity`, {
             onBlur: () => reformat(`items.${index}.quantity`, formatQuantityInput),
@@ -454,14 +464,17 @@ function ItemGridRow({ fieldId, index, items, errors, openStyleFor, setOpenStyle
             inputMode="decimal"
             autoComplete="off"
             placeholder="0.00"
-            className="pl-6 pr-2.5 text-right tabular-nums"
+            className="pl-5 pr-2 text-right tabular-nums"
+            title={item?.price ? `$${item.price}` : undefined}
             aria-invalid={!!err?.price}
             {...register(`items.${index}.price`, {
               onBlur: () => reformat(`items.${index}.price`, formatPriceInput),
             })}
           />
         </div>
-        <span className="truncate text-right text-sm font-medium tabular-nums">{formatMoney(itemAmount(item))}</span>
+        <span className="truncate text-right text-sm font-medium tabular-nums" title={formatMoney(itemAmount(item))}>
+          {formatMoney(itemAmount(item))}
+        </span>
         <ItemMenu actions={actionsFor(index)} compact />
       </div>
       {messages.length > 0 && (

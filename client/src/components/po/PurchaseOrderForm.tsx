@@ -2,36 +2,71 @@
  * The purchase-order compose screen (create / duplicate / edit), modeled on composing in Mail
  * or adding an event in Calendar: Cancel on the left, the save action on the right, grouped
  * form cards, and — on phones — a bottom toolbar with live totals and the primary button.
+ *
+ * Nothing the owner typed is lost silently:
+ *  - unsaved changes autosave to this device (per PO) and are offered again on reopening;
+ *  - in-app links and tab close ask first (useUnsavedChanges);
+ *  - a save made on top of changes from another device/screen is refused by the server (412)
+ *    and the owner chooses: review the latest version (their edits are kept to restore) or
+ *    save their version anyway.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useLocation } from "wouter";
-import { useForm, useWatch, type Control, type FieldErrors } from "react-hook-form";
-import { Archive, ArrowDownToLine, CopyPlus, Eye, History, Loader2 } from "lucide-react";
-import type { AppSettings, POFormValues, PurchaseOrder } from "@shared/po";
+import { useQueryClient } from "@tanstack/react-query";
+import { useForm, useWatch, type Control, type FieldErrors, type FieldPath } from "react-hook-form";
+import { Archive, ArrowDownToLine, CopyPlus, Eye, History, Loader2, RefreshCw } from "lucide-react";
+import type { AppSettings, POFormValues, PurchaseOrder, StyleRecord } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
-import { ConfirmDialog, ResponsiveDialog } from "@/components/common";
+import { ResponsiveDialog } from "@/components/common";
 import { FormSection, IconTile, ListRow, ListSection, type IosColor } from "@/components/kit";
 import PODocument from "@/components/po/PODocument";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useToast } from "@/hooks/use-toast";
-import { ApiError, useAddresses, useCreatePurchaseOrder, useUpdatePurchaseOrder } from "@/lib/api";
+import { UnsavedChangesDialog, useUnsavedChanges, type UnsavedChangesGuard } from "@/hooks/use-unsaved-changes";
+import {
+  ApiError,
+  api,
+  invalidateStyles,
+  keys,
+  useAddresses,
+  useCreatePurchaseOrder,
+  useUpdatePurchaseOrder,
+} from "@/lib/api";
 import { documentFromFormValues, type PODocumentData } from "@/lib/document";
 import { formatDateTime, formatMoney, formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressField } from "./AddressField";
 import { LineItemsEditor } from "./LineItemsEditor";
+import type { StyleSelection } from "./StyleCombobox";
 import { OrderSection } from "./editor-order-section";
 import {
   clearDraft,
+  companyAddressText,
+  draftKey,
   editorResolver,
   editorTotals,
   formatDraftTime,
+  leaveEditor,
   loadDraft,
+  sameEditorValues,
   saveDraft,
   toFormValues,
+  validateDraft,
+  valuesFromPurchaseOrder,
+  withOriginalDates,
+  type DraftIssue,
   type EditorDraft,
   type EditorMode,
   type EditorValues,
@@ -41,13 +76,22 @@ export interface PurchaseOrderFormProps {
   mode: EditorMode;
   defaultValues: EditorValues;
   settings: AppSettings;
-  /** The PO being edited (edit mode). */
+  /** The PO being edited (edit mode). May be refreshed in the background while editing. */
   po?: PurchaseOrder;
   /** The PO being copied (duplicate mode). */
   source?: PurchaseOrder;
   /** Next free PO number from the server (create/duplicate), filled in once it arrives. */
   suggestedPoNumber?: string;
 }
+
+/** What the editor sends: form values plus, when editing, the version it started from. */
+type POWrite = POFormValues & { expectedVersion?: string };
+
+/** Unsaved changes offered at the top of the form. */
+type HeldDraft = EditorDraft & {
+  /** "autosave": left without saving earlier; "conflict": set aside by Review Latest. */
+  reason: "autosave" | "conflict";
+};
 
 const FORM_ID = "po-editor-form";
 
@@ -90,14 +134,30 @@ function firstErrorMessage(errors: FieldErrors<EditorValues>): string | undefine
   return undefined;
 }
 
+function issueMessage(issue: DraftIssue | undefined): string | undefined {
+  if (!issue) return undefined;
+  const item = issue.path.match(/^items\.(\d+)\./);
+  return item ? `Item ${Number(item[1]) + 1}: ${issue.message}` : issue.message;
+}
+
 export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, suggestedPoNumber }: PurchaseOrderFormProps) {
   useHideMobileNav();
   const isDesktop = useIsDesktop();
-  const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: addresses, isLoading: addressesLoading } = useAddresses();
   const createMutation = useCreatePurchaseOrder();
   const updateMutation = useUpdatePurchaseOrder(po?.id ?? 0);
+
+  const isEdit = mode === "edit";
+
+  /**
+   * Edit mode: the saved PO the form was filled from. The page refreshes `po` in the background;
+   * saves are checked against what the owner actually started from (`expectedVersion`).
+   */
+  const [base, setBase] = useState<PurchaseOrder | undefined>(po);
+  const expectedVersionRef = useRef<string | undefined>(po?.version);
+  const storageKey = draftKey(mode, isEdit ? po?.id : source?.id);
 
   const form = useForm<EditorValues, unknown, POFormValues>({
     defaultValues,
@@ -106,140 +166,269 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     reValidateMode: "onChange",
     shouldFocusError: false,
   });
-  const { control, handleSubmit, getValues, reset, resetField, setError, getFieldState, watch, formState } = form;
+  const { control, handleSubmit, getValues, reset, resetField, setError, clearErrors, getFieldState, watch, formState } = form;
   /** FormField expects an untransformed Control; same object. */
   const fieldControl = control as unknown as Control<EditorValues>;
   const isDirty = formState.isDirty;
   const saving = createMutation.isPending || updateMutation.isPending;
 
+  const guard = useUnsavedChanges(isDirty);
+
   const formRef = useRef<HTMLFormElement>(null);
-  const leavingRef = useRef(false);
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
+  /** Synchronous "a save is in progress" flag: ⌘S, Enter and the buttons can't send twice. */
+  const busyRef = useRef(false);
+  /** Saved or discarded — the editor is on its way out; stop autosaving. */
+  const doneRef = useRef(false);
+  /** Styles added to the catalog from this editor ("Add “X” to Styles"). */
+  const createdStylesRef = useRef(new Map<number, StyleSelection>());
 
-  const [confirmHref, setConfirmHref] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const [preview, setPreview] = useState<PODocumentData | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const [draft, setDraft] = useState<EditorDraft | null>(() => (mode === "create" ? loadDraft(defaultValues) : null));
+  const [conflict, setConflict] = useState<{ values: POFormValues; asDraft: boolean } | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [draft, setDraft] = useState<HeldDraft | null>(() => {
+    const stored = loadDraft(storageKey, defaultValues);
+    if (!stored) return null;
+    if (sameEditorValues(stored.values, defaultValues)) {
+      clearDraft(storageKey); // nothing unsaved after all
+      return null;
+    }
+    return { ...stored, reason: "autosave" };
+  });
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
-  const isEdit = mode === "edit";
-  const backHref = isEdit && po ? `/purchase-orders/${po.id}` : mode === "duplicate" && source ? `/purchase-orders/${source.id}` : "/purchase-orders";
-  const title = isEdit && po ? `Edit PO #${po.poNumber}` : "New Purchase Order";
+  const backHref = isEdit && base ? `/purchase-orders/${base.id}` : mode === "duplicate" && source ? `/purchase-orders/${source.id}` : "/purchase-orders";
+  const title = isEdit && base ? `Edit PO #${base.poNumber}` : "New Purchase Order";
 
-  // Fill in the suggested PO number once it loads — unless the user already typed one.
+  // Fill in the suggested PO number once it loads — unless the user already typed one. If they're
+  // in the field right now, wait until they leave it (so it never lands in the middle of typing).
   useEffect(() => {
     if (!suggestedPoNumber || isEdit) return;
-    if (getFieldState("poNumber").isDirty || getValues("poNumber") === suggestedPoNumber) return;
-    resetField("poNumber", { defaultValue: suggestedPoNumber });
+    const apply = () => {
+      if (getFieldState("poNumber").isDirty || getValues("poNumber")?.trim()) return;
+      resetField("poNumber", { defaultValue: suggestedPoNumber });
+    };
+    const input = formRef.current?.querySelector<HTMLInputElement>('input[name="poNumber"]');
+    if (input && document.activeElement === input) {
+      input.addEventListener("blur", apply, { once: true });
+      return () => input.removeEventListener("blur", apply);
+    }
+    apply();
   }, [suggestedPoNumber, isEdit, getFieldState, getValues, resetField]);
 
-  // ---- Leaving safely ------------------------------------------------------
+  // ---- Leaving -------------------------------------------------------------
 
-  // Browser reload / tab close.
-  useEffect(() => {
-    if (!isDirty || saving) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (leavingRef.current) return;
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isDirty, saving]);
+  /** Cancel / discard: back to where the owner came from (or the fallback page). */
+  const exit = useCallback(() => {
+    leaveEditor(backHref, (href) => guard.leave(href, { replace: true }));
+  }, [backHref, guard]);
 
-  // In-app links (sidebar, etc.) while there are unsaved changes → ask first.
-  useEffect(() => {
-    if (!isDirty) return;
-    const onClick = (e: MouseEvent) => {
-      if (leavingRef.current || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const anchor = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      const href = url.pathname + url.search;
-      if (href === window.location.pathname + window.location.search) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setConfirmHref(href);
-    };
-    document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
-  }, [isDirty]);
-
-  const leave = useCallback(
-    (href: string) => {
-      leavingRef.current = true;
-      navigate(href);
-    },
-    [navigate],
-  );
+  const cancelRequestedRef = useRef(false);
 
   const onCancel = () => {
-    if (isDirty) setConfirmHref(backHref);
-    else leave(backHref);
+    if (!isDirty) {
+      doneRef.current = true;
+      exit();
+      return;
+    }
+    cancelRequestedRef.current = true;
+    guard.requestLeave(backHref);
   };
 
-  const discardAndLeave = () => {
-    const href = confirmHref ?? backHref;
-    setConfirmHref(null);
-    if (mode === "create") clearDraft();
-    leave(href);
+  /** The "Discard changes?" dialog (Cancel and in-app links). Discarding also drops the autosave. */
+  const discardGuard: UnsavedChangesGuard = {
+    ...guard,
+    confirm: () => {
+      doneRef.current = true;
+      clearDraft(storageKey);
+      if (cancelRequestedRef.current) {
+        cancelRequestedRef.current = false;
+        guard.cancel();
+        exit();
+      } else {
+        guard.confirm();
+      }
+    },
+    cancel: () => {
+      cancelRequestedRef.current = false;
+      guard.cancel();
+    },
   };
 
-  // ---- Local draft (create mode) -------------------------------------------
+  // ---- Autosave (every mode) ------------------------------------------------
 
   useEffect(() => {
-    if (mode !== "create") return;
     let timer: number | undefined;
+    const flush = () => {
+      timer = undefined;
+      if (doneRef.current) return;
+      if (isDirtyRef.current) saveDraft(storageKey, getValues(), isEdit ? expectedVersionRef.current : undefined);
+      else if (!draftRef.current) clearDraft(storageKey);
+    };
     const sub = watch(() => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        if (!leavingRef.current && isDirtyRef.current) saveDraft(getValues());
-      }, 800);
+      timer = window.setTimeout(flush, 800);
     });
+    // iOS may close a backgrounded page without warning: save right away.
+    const onHide = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        flush();
+      }
+    };
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onHide);
     return () => {
       sub.unsubscribe();
-      window.clearTimeout(timer);
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onHide);
+      // Leaving (e.g. browser Back) within the debounce: keep the last keystrokes too.
+      onHide();
     };
-  }, [mode, watch, getValues]);
+  }, [watch, getValues, storageKey, isEdit]);
 
   const restoreDraft = () => {
     if (!draft) return;
     reset(draft.values, { keepDefaultValues: true });
+    // Changes made on an older version stay checked against that version when saving.
+    if (isEdit && draft.baseVersion) expectedVersionRef.current = draft.baseVersion;
     setDraft(null);
-    toast({ title: "Draft restored", description: "Pick up where you left off." });
+    toast(
+      isEdit
+        ? { title: "Changes restored", description: "Save to keep them." }
+        : { title: "Draft restored", description: "Pick up where you left off." },
+    );
   };
 
   const discardDraft = () => {
-    clearDraft();
+    clearDraft(storageKey);
     setDraft(null);
   };
 
+  // ---- Changes made elsewhere ------------------------------------------------
+
+  /**
+   * Show `latest` in the form. `held` (the owner's unsaved values) is kept at the top of the form
+   * so it can be restored — nothing typed disappears without a way back.
+   */
+  const showLatest = useCallback(
+    (latest: PurchaseOrder, held?: EditorValues) => {
+      const next = valuesFromPurchaseOrder(latest);
+      setBase(latest);
+      expectedVersionRef.current = latest.version;
+      reset(next);
+      if (held && !sameEditorValues(held, next)) {
+        const kept: HeldDraft = { savedAt: new Date().toISOString(), values: held, baseVersion: latest.version, reason: "conflict" };
+        setDraft(kept);
+        saveDraft(storageKey, held, latest.version);
+      }
+      return !!held && !sameEditorValues(held, next);
+    },
+    [reset, storageKey],
+  );
+
+  const reviewLatest = async () => {
+    if (!base || reviewing) return;
+    const held = getValues();
+    setReviewing(true);
+    try {
+      const latest = await queryClient.fetchQuery<PurchaseOrder>({ queryKey: keys.purchaseOrder(base.id), staleTime: 0 });
+      setConflict(null);
+      const keptEdits = showLatest(latest, held);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast({
+        title: "Latest version loaded",
+        description: keptEdits ? "Your edits weren't saved. You can restore them at the top of the form." : undefined,
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Couldn't load the latest version",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  // The page refreshes the PO in the background (e.g. when the window regains focus).
+  const outdated =
+    isEdit && !!po?.version && !!expectedVersionRef.current && po.version !== expectedVersionRef.current && !saving && !doneRef.current;
+
+  useEffect(() => {
+    // Nothing typed yet (and nothing waiting to be restored): just show the latest version.
+    if (!outdated || !po || isDirtyRef.current || draftRef.current || conflict) return;
+    if (po.version === expectedVersionRef.current) return;
+    showLatest(po);
+    toast({ title: "Order updated", description: "Showing changes saved somewhere else." });
+  }, [outdated, po, conflict, showLatest, toast]);
+
   // ---- Saving --------------------------------------------------------------
 
-  const save = async (values: POFormValues, asDraft = false) => {
-    const payload: POFormValues = asDraft ? { ...values, status: "draft" } : values;
+  /** Fills in color/description of styles added from this editor (they're usually blank when added). */
+  const completeNewStyles = (saved: PurchaseOrder) => {
+    const catalog = queryClient.getQueryData<StyleRecord[]>(keys.styles()) ?? [];
+    createdStylesRef.current.forEach((added, id) => {
+      const line = saved.items.find((i) => i.styleId === id);
+      if (!line) return;
+      const current = catalog.find((s) => s.id === id);
+      const styleNumber = current?.styleNumber ?? added.styleNumber;
+      const color = (current?.color ?? added.color ?? "").trim();
+      const description = (current?.description ?? added.description ?? "").trim();
+      const next = { styleNumber, color: color || line.color.trim(), description: description || line.description.trim() };
+      if (next.color === color && next.description === description) return;
+      void api("PUT", `/api/styles/${id}`, next)
+        .then(() => invalidateStyles())
+        .catch(() => {
+          // Best effort: the PO line keeps its details either way.
+        });
+    });
+  };
+
+  /** Sends the PO. Returns true when it was saved (and the editor is leaving). */
+  const save = async (values: POFormValues, asDraft: boolean, { overwrite = false } = {}): Promise<boolean> => {
+    let payload: POWrite = asDraft ? { ...values, status: "draft" } : { ...values };
+    if (isEdit) {
+      payload = withOriginalDates(payload, base);
+      if (!overwrite) payload.expectedVersion = expectedVersionRef.current;
+    }
     try {
       const saved = isEdit ? await updateMutation.mutateAsync(payload) : await createMutation.mutateAsync(payload);
-      if (mode === "create") clearDraft();
+      doneRef.current = true;
+      clearDraft(storageKey);
+      completeNewStyles(saved);
+      setConflict(null);
       toast({
         title: isEdit ? "Changes saved" : asDraft ? "Draft saved" : "Purchase order created",
         description: `PO #${saved.poNumber} · ${formatMoney(saved.totalAmount)}`,
       });
-      leave(`/purchase-orders/${saved.id}`);
+      const href = `/purchase-orders/${saved.id}`;
+      // The compose screen doesn't stay in history: Back from the saved PO goes where you were.
+      if (isEdit) leaveEditor(href, (to) => guard.leave(to, { replace: true }), { onlyIfPrevious: true });
+      else guard.leave(href, { replace: true });
+      return true;
     } catch (err) {
+      if (isEdit && err instanceof ApiError && err.status === 412) {
+        setConflict({ values, asDraft });
+        return false;
+      }
+      setConflict(null);
       if (err instanceof ApiError && err.status === 409) {
         setError("poNumber", { type: "server", message: "This PO number is already used. Try another one." });
         setFocusRequest((n) => n + 1);
         toast({ variant: "destructive", title: "PO number already used", description: err.message });
-        return;
+        return false;
       }
       toast({
         variant: "destructive",
         title: isEdit ? "Couldn't save changes" : "Couldn't create the purchase order",
         description: err instanceof Error ? err.message : "Please try again.",
       });
+      return false;
     }
   };
 
@@ -252,8 +441,54 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     });
   };
 
-  const submit = handleSubmit((values) => save(values), onInvalid);
-  const submitDraft = handleSubmit((values) => save(values, true), onInvalid);
+  /** "Save as Draft": only the PO number and dates need to be valid; empty item rows are dropped. */
+  const saveAsDraft = async (): Promise<boolean> => {
+    const result = validateDraft({ ...getValues(), status: "draft" });
+    clearErrors();
+    if (!result.ok) {
+      for (const issue of result.issues) {
+        setError(issue.path as FieldPath<EditorValues>, { type: "draft", message: issue.message });
+      }
+      setFocusRequest((n) => n + 1);
+      toast({ variant: "destructive", title: "Check the highlighted fields", description: issueMessage(result.issues[0]) });
+      return false;
+    }
+    return save(result.values, true);
+  };
+
+  /** Every way of saving goes through here (buttons, ⌘S, Enter), one at a time. */
+  const runSave = async (asDraft: boolean, options?: { overwrite?: boolean }) => {
+    // While the "changed since you opened it" question is open, only its buttons save.
+    if (busyRef.current || (conflict && !options?.overwrite)) return;
+    busyRef.current = true;
+    let left = false;
+    try {
+      if (isEdit && !asDraft && !options?.overwrite && !isDirtyRef.current && base) {
+        // Nothing changed: just close (no request, so no "saved with no changes" history entry,
+        // and no "changed since you opened it" question about edits nobody made).
+        left = true;
+        doneRef.current = true;
+        toast({ title: "No changes to save" });
+        const href = `/purchase-orders/${base.id}`;
+        leaveEditor(href, (to) => guard.leave(to, { replace: true }), { onlyIfPrevious: true });
+      } else if (options?.overwrite && conflict) {
+        left = await save(conflict.values, conflict.asDraft, { overwrite: true });
+      } else if (asDraft) {
+        left = await saveAsDraft();
+      } else {
+        // A PO whose status is Draft is validated like a draft (see editorResolver).
+        await handleSubmit(async (values) => {
+          left = await save(values, false);
+        }, onInvalid)();
+      }
+    } finally {
+      // After a successful save the editor is leaving: stay locked so nothing is sent twice.
+      if (!left) busyRef.current = false;
+    }
+  };
+
+  const submit = () => void runSave(false);
+  const submitDraft = () => void runSave(true);
 
   // Scroll to and focus the first invalid field (in screen order) after a failed submit.
   useEffect(() => {
@@ -278,7 +513,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        void submitRef.current();
+        if (!busyRef.current) submitRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -313,7 +548,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
 
   const shipTo = useWatch({ control, name: "shipTo" });
   const billTo = useWatch({ control, name: "billTo" });
-  const companyAddress = [settings.company?.name, settings.company?.address].map((v) => v?.trim()).filter(Boolean).join("\n");
+  const companyAddress = companyAddressText(settings);
 
   const setBillTo = (value: string) =>
     form.setValue("billTo", value, {
@@ -322,11 +557,38 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
       shouldValidate: formState.isSubmitted || getFieldState("billTo").isTouched,
     });
 
+  const onStyleAdded = (selection: StyleSelection) => {
+    if (selection.styleId) createdStylesRef.current.set(selection.styleId, selection);
+  };
+
+  const draftNotice = draft && (() => {
+    const when = formatDraftTime(draft.savedAt);
+    if (draft.reason === "conflict") {
+      return {
+        title: "Your edits weren't saved",
+        description: "You're seeing the latest version. Restore your edits to replace it with your version.",
+      };
+    }
+    if (isEdit) {
+      const changedSince = !!draft.baseVersion && !!base?.version && draft.baseVersion !== base.version;
+      return {
+        title: "Continue editing?",
+        description: `You have unsaved changes from ${when}.${changedSince ? " This order has been changed since then." : ""}`,
+      };
+    }
+    return {
+      title: "Continue your unsaved purchase order?",
+      description: mode === "duplicate" ? `You started a copy ${when}.` : `You started one ${when}.`,
+    };
+  })();
+
+  const showNotices = !!draftNotice || (outdated && isDirty) || (isEdit && base?.archivedAt) || (mode === "duplicate" && source);
+
   return (
     <>
       <PageHeader
         largeTitle={false}
-        width="wide"
+        width="default"
         title={title}
         leading={
           <Button type="button" variant="plain" onClick={onCancel} className="-ml-1 h-11 px-2 text-[17px] font-normal md:h-9 md:text-[15px]">
@@ -338,7 +600,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
             <Button
               type="button"
               variant="plain"
-              onClick={() => void submit()}
+              onClick={submit}
               disabled={saving}
               className="h-11 px-2 text-[17px] font-semibold md:hidden"
             >
@@ -350,11 +612,11 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
                 <span className="hidden xl:inline">Preview</span>
               </Button>
               {!isEdit && (
-                <Button type="button" variant="tinted" size="sm" onClick={() => void submitDraft()} disabled={saving}>
+                <Button type="button" variant="tinted" size="sm" onClick={submitDraft} disabled={saving}>
                   Save as Draft
                 </Button>
               )}
-              <Button type="button" size="sm" onClick={() => void submit()} disabled={saving}>
+              <Button type="button" size="sm" onClick={submit} disabled={saving}>
                 {saving && spinner}
                 {isEdit ? (
                   "Save Changes"
@@ -370,7 +632,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
         }
       />
 
-      <PageContainer width="narrow">
+      <PageContainer width="default">
         <Form {...form}>
           <form
             id={FORM_ID}
@@ -378,18 +640,18 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
-              void submit();
+              submit();
             }}
             className="space-y-7 md:space-y-8"
           >
-            {(draft || (isEdit && po?.archivedAt) || (mode === "duplicate" && source)) && (
+            {showNotices && (
               <div className="space-y-3">
-                {draft && (
+                {draftNotice && (
                   <Notice
                     icon={History}
                     color="orange"
-                    title="Continue your unsaved purchase order?"
-                    description={`You started one ${formatDraftTime(draft.savedAt)}.`}
+                    title={draftNotice.title}
+                    description={draftNotice.description}
                     actions={
                       <>
                         <Button type="button" size="sm" variant="tinted" onClick={restoreDraft}>
@@ -402,12 +664,25 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
                     }
                   />
                 )}
-                {isEdit && po?.archivedAt && (
+                {outdated && isDirty && !draftNotice && (
+                  <Notice
+                    icon={RefreshCw}
+                    color="orange"
+                    title="This order was changed somewhere else"
+                    description="Someone (or another device) saved changes after you started editing."
+                    actions={
+                      <Button type="button" size="sm" variant="tinted" onClick={() => void reviewLatest()} disabled={reviewing}>
+                        Review Latest
+                      </Button>
+                    }
+                  />
+                )}
+                {isEdit && base?.archivedAt && (
                   <Notice
                     icon={Archive}
                     color="gray"
                     title="This purchase order is archived"
-                    description={`Archived ${formatDateTime(po.archivedAt)}. You can still edit it; restore it from the order page to make it active again.`}
+                    description={`Archived ${formatDateTime(base.archivedAt)}. You can still edit it; restore it from the order page to make it active again.`}
                   />
                 )}
                 {mode === "duplicate" && source && (
@@ -419,15 +694,10 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
               </div>
             )}
 
-            <OrderSection
-              mode={mode}
-              poId={po?.id}
-              originalNumber={po?.poNumber}
-              suggestedPoNumber={suggestedPoNumber}
-            />
+            <OrderSection mode={mode} poId={base?.id} originalNumber={base?.poNumber} suggestedPoNumber={suggestedPoNumber} />
 
             <FormSection title="Addresses" id="po-addresses">
-              <div className="grid gap-5 md:grid-cols-2 md:gap-x-5">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-x-5">
                 <AddressField
                   name="shipTo"
                   label="Ship To"
@@ -469,7 +739,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
               </div>
             </FormSection>
 
-            <LineItemsEditor />
+            <LineItemsEditor onStyleAdded={onStyleAdded} />
 
             <FormSection title="Notes" id="po-notes">
               <FormField
@@ -514,11 +784,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
 
             {!isEdit && (
               <ListSection className="md:hidden" footer="Save it now and finish it later. Drafts stay in your orders list.">
-                <ListRow
-                  onClick={() => void submitDraft()}
-                  disabled={saving}
-                  title={<span className="text-primary">Save as Draft</span>}
-                />
+                <ListRow onClick={submitDraft} disabled={saving} title={<span className="text-primary">Save as Draft</span>} />
               </ListSection>
             )}
 
@@ -527,7 +793,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
             {/* Desktop: Enter in a text field submits. Phones have no implicit submit, so the
                 keyboard's return key never sends a half-finished order. */}
             {isDesktop && (
-              <button type="submit" tabIndex={-1} aria-hidden className="sr-only">
+              <button type="submit" tabIndex={-1} aria-hidden disabled={saving} className="sr-only">
                 Save
               </button>
             )}
@@ -535,27 +801,24 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
         </Form>
       </PageContainer>
 
-      <PhoneToolbar
-        control={control}
-        primaryLabel={primaryLabel}
-        saving={saving}
-        onSubmit={() => void submit()}
-        onPreview={openPreview}
-      />
+      <PhoneToolbar control={control} primaryLabel={primaryLabel} saving={saving} onSubmit={submit} onPreview={openPreview} />
 
-      <ConfirmDialog
-        open={confirmHref !== null}
-        onOpenChange={(open) => !open && setConfirmHref(null)}
-        title="Discard changes?"
+      <UnsavedChangesDialog
+        guard={discardGuard}
         description={
           isEdit
             ? "Your changes to this purchase order won't be saved."
             : "This purchase order hasn't been saved yet. If you leave, it will be discarded."
         }
-        confirmLabel="Discard Changes"
-        cancelLabel="Keep Editing"
-        destructive
-        onConfirm={discardAndLeave}
+      />
+
+      <ConflictDialog
+        open={conflict !== null}
+        saving={saving}
+        reviewing={reviewing}
+        onReviewLatest={() => void reviewLatest()}
+        onSaveMine={() => void runSave(false, { overwrite: true })}
+        onKeepEditing={() => setConflict(null)}
       />
 
       <ResponsiveDialog
@@ -585,6 +848,56 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
+
+/** Shown when the server refuses a save because the PO changed after the editor loaded it. */
+function ConflictDialog({
+  open,
+  saving,
+  reviewing,
+  onReviewLatest,
+  onSaveMine,
+  onKeepEditing,
+}: {
+  open: boolean;
+  saving: boolean;
+  reviewing: boolean;
+  onReviewLatest: () => void;
+  onSaveMine: () => void;
+  onKeepEditing: () => void;
+}) {
+  const busy = saving || reviewing;
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => !next && !busy && onKeepEditing()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>This order changed since you opened it</AlertDialogTitle>
+          <AlertDialogDescription>
+            Someone (or another device) saved changes after you started editing. Saving your version replaces theirs.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col sm:flex sm:flex-col">
+          <AlertDialogAction
+            disabled={busy}
+            onClick={(e) => {
+              e.preventDefault();
+              onReviewLatest();
+            }}
+          >
+            {reviewing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+            Review Latest
+          </AlertDialogAction>
+          <Button type="button" variant="tinted" disabled={busy} onClick={onSaveMine}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+            Save My Version
+          </Button>
+          <AlertDialogCancel disabled={busy} className="bg-transparent text-primary hover:bg-primary/10">
+            Keep Editing
+          </AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 function Notice({
   icon,
