@@ -5,3 +5,4 @@ dist/
 *.log
 .local/
 mnt/
+.tmp-test/

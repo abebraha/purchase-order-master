@@ -1,10 +1,10 @@
 // STUB — to be implemented.
 import { PageContainer, PageHeader } from "@/components/layout/AppShell";
 
-export default function PurchaseOrderView() {
+export default function PurchaseOrderEditor() {
   return (
     <>
-      <PageHeader title="PurchaseOrderView" />
+      <PageHeader title="PurchaseOrderEditor" />
       <PageContainer>Coming soon</PageContainer>
     </>
   );
