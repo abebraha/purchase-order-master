@@ -261,6 +261,15 @@
   }
 }
 
+/* While a bottom sheet is open on a phone, show toasts at the top so they never cover the
+   sheet's buttons. */
+@media (max-width: 767px) {
+  html:has([data-vaul-drawer][data-state="open"]) .toast-viewport {
+    top: calc(env(safe-area-inset-top) + 0.5rem);
+    bottom: auto;
+  }
+}
+
 /* Respect "Reduce Motion" */
 @media (prefers-reduced-motion: reduce) {
   *,

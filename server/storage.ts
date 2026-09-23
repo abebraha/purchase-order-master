@@ -254,11 +254,21 @@ async function deletedPoNumbers(): Promise<Set<string>> {
 }
 
 export async function suggestNextPoNumber(increment: (last: string) => string): Promise<string> {
-  const [latest] = await db
+  // Continue the highest plain-number PO (e.g. 3013 → 3014) so one oddly named PO ("SAMPLE-A")
+  // doesn't derail the sequence; if there are none, continue the most recent PO's pattern.
+  const [highestNumeric] = await db
     .select({ poNumber: purchaseOrders.poNumber })
     .from(purchaseOrders)
-    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+    .where(sql`${purchaseOrders.poNumber} ~ '^[0-9]{1,15}$'`)
+    .orderBy(sql`${purchaseOrders.poNumber}::bigint desc`)
     .limit(1);
+  const [latest] = highestNumeric
+    ? [highestNumeric]
+    : await db
+        .select({ poNumber: purchaseOrders.poNumber })
+        .from(purchaseOrders)
+        .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+        .limit(1);
   const deleted = await deletedPoNumbers();
   let candidate = increment(latest?.poNumber ?? "1000");
   for (let i = 0; i < 500 && (deleted.has(candidate.toLowerCase()) || (await poNumberExists(candidate))); i++) {

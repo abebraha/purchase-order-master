@@ -16,7 +16,7 @@ const ToastViewport = React.forwardRef<
     className={cn(
       // Phones: just above the tab bar / bottom toolbar (never over the nav-bar buttons).
       // --toast-offset is set by AppShell (larger on screens with their own bottom toolbar).
-      "pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+var(--toast-offset,3.75rem))] z-[100] flex max-h-screen w-full flex-col p-3 sm:bottom-0 sm:left-auto sm:right-0 sm:p-5 md:max-w-[400px] lg:bottom-0",
+      "toast-viewport pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+var(--toast-offset,3.75rem))] z-[100] flex max-h-screen w-full flex-col p-3 sm:bottom-0 sm:left-auto sm:right-0 sm:p-5 md:max-w-[400px] lg:bottom-0",
       className
     )}
     {...props}

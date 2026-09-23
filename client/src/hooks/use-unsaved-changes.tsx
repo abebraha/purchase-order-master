@@ -81,7 +81,7 @@ export type UnsavedChangesGuard = ReturnType<typeof useUnsavedChanges>;
 
 export function UnsavedChangesDialog({
   guard,
-  title = "Discard changes?",
+  title = "Discard Changes?",
   description = "You have changes that haven't been saved.",
 }: {
   guard: UnsavedChangesGuard;

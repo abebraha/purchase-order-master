@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useLocation } from "wouter";
 import { CircleCheck, Loader2 } from "lucide-react";
 import { DEFAULT_SETTINGS, type AppSettings } from "@shared/po";
 import { PageContainer, PageHeader, ThemeToggle } from "@/components/layout/AppShell";
@@ -15,6 +16,7 @@ import { RecentlyDeletedSection } from "@/components/settings/RecentlyDeletedSec
 import { CompanySection, DefaultsSection, DocumentSection } from "@/components/settings/SettingsFormSections";
 import { settingsFormSchema, toFormValues } from "@/components/settings/schema";
 import { useToast } from "@/hooks/use-toast";
+import { UnsavedChangesDialog, useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { useSaveSettings, useSettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -95,15 +97,57 @@ function SettingsScreen() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Warn before closing the tab with unsaved edits.
+  // Unsaved edits are never dropped silently: the tab bar, sidebar and any other in-app link ask
+  // "Discard Changes?" first, and closing the tab warns. (Once Save is tapped, leaving is fine: the
+  // save carries on, and its "Settings saved" / "Couldn't save settings" toast still shows.)
+  const guard = useUnsavedChanges(isDirty && !saving);
+
+  // Links opened from code (the "Open" button on a toast) ask too — but a toast can outlive this
+  // screen, and once it's gone there's nothing left to lose.
+  const [, navigate] = useLocation();
+  const guardRef = useRef(guard);
+  guardRef.current = guard;
+  const mountedRef = useRef(false);
   useEffect(() => {
-    if (!isDirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
     };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+  const openLink = useCallback(
+    (href: string) => (mountedRef.current ? guardRef.current.requestLeave(href) : navigate(href)),
+    [navigate],
+  );
+
+  // While the save bar floats over the form (iPad, desktop), a field that gets focus — by Tab, or a tap
+  // on one it half covers — is scrolled up so it isn't hidden under the bar.
+  const saveBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const form = document.getElementById(FORM_ID);
+    if (!isDirty || !form) return;
+    let frame = 0;
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement;
+      const bar = saveBarRef.current;
+      if (!bar || bar.contains(el)) return;
+      cancelAnimationFrame(frame);
+      // Measure after the browser's own focus scrolling.
+      frame = requestAnimationFrame(() => {
+        const field = el.getBoundingClientRect();
+        const covered = field.bottom + 12 - bar.getBoundingClientRect().top;
+        if (covered <= 0) return;
+        // Never push the top of a tall field (an address box) under the nav bar.
+        const minTop = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+        const by = Math.min(covered, field.top - minTop);
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (by > 0) window.scrollBy({ top: by, behavior: reduce ? "auto" : "smooth" });
+      });
+    };
+    form.addEventListener("focusin", onFocusIn);
+    return () => {
+      form.removeEventListener("focusin", onFocusIn);
+      cancelAnimationFrame(frame);
+    };
   }, [isDirty]);
 
   // Deep links: /settings#deleted, #company, #defaults, #appearance, #data, #install.
@@ -167,7 +211,7 @@ function SettingsScreen() {
                 <CompanySection />
                 <DefaultsSection key={resetKey} />
                 <DocumentSection />
-                <SaveBar dirty={isDirty} saving={saving} onRevert={() => setDiscardOpen(true)} />
+                <SaveBar ref={saveBarRef} dirty={isDirty} saving={saving} onRevert={() => setDiscardOpen(true)} />
               </form>
             </Form>
           ) : error ? (
@@ -201,7 +245,7 @@ function SettingsScreen() {
           </div>
 
           <div id="deleted" className="scroll-mt-20">
-            <RecentlyDeletedSection settings={settings ?? DEFAULT_SETTINGS} />
+            <RecentlyDeletedSection settings={settings ?? DEFAULT_SETTINGS} onOpenLink={openLink} />
           </div>
 
           <div id="install" className="scroll-mt-20">
@@ -222,26 +266,37 @@ function SettingsScreen() {
         destructive
         onConfirm={discard}
       />
+      <UnsavedChangesDialog
+        guard={guard}
+        title="Discard Changes?"
+        description="Your unsaved edits to Settings will be lost."
+      />
     </>
   );
 }
 
 /**
- * End of the form. Desktop: always there, and it floats at the bottom of the window while there
- * are unsaved changes. Phones: a full-width button that appears once something changed
- * (the nav bar also gets Cancel / Save).
+ * End of the form. iPad and desktop: always there, and it floats at the bottom of the window while
+ * there are unsaved changes — above the tab bar where there is one (below lg). Being sticky inside
+ * the form, it never floats past the form's end, so nothing after it is ever covered.
+ * Phones: a full-width button that appears once something changed (the nav bar also gets Cancel / Save).
  */
-function SaveBar({ dirty, saving, onRevert }: { dirty: boolean; saving: boolean; onRevert: () => void }) {
+const SaveBar = forwardRef<HTMLDivElement, { dirty: boolean; saving: boolean; onRevert: () => void }>(function SaveBar(
+  { dirty, saving, onRevert },
+  ref,
+) {
   return (
     <div
+      ref={ref}
       className={cn(
         "z-20 transition-[background-color,box-shadow] duration-200",
         dirty
           ? cn(
-              "md:sticky md:bottom-6 md:rounded-2xl md:py-2.5 md:pl-5 md:pr-2.5",
+              "md:sticky md:bottom-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1rem)] lg:bottom-6",
+              "md:rounded-2xl md:py-2.5 md:pl-5 md:pr-2.5",
               "md:bg-card/90 md:backdrop-blur-xl md:backdrop-saturate-150",
               "md:shadow-[0_14px_40px_-12px_rgba(0,0,0,0.3),0_0_0_0.5px_rgba(0,0,0,0.12)]",
-              "md:dark:bg-[hsl(240_3%_17%/0.9)] md:dark:shadow-[0_14px_40px_-12px_rgba(0,0,0,0.9),0_0_0_0.5px_rgba(255,255,255,0.14)]",
+              "md:dark:bg-popover/90 md:dark:shadow-[0_14px_40px_-12px_rgba(0,0,0,0.9),0_0_0_0.5px_rgba(255,255,255,0.14)]",
             )
           : "max-md:hidden md:px-1",
       )}
@@ -274,7 +329,7 @@ function SaveBar({ dirty, saving, onRevert }: { dirty: boolean; saving: boolean;
       </div>
     </div>
   );
-}
+});
 
 function FormSkeleton() {
   return (

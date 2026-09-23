@@ -341,6 +341,13 @@ const WIDTH: Record<PageWidth, string> = {
   wide: "max-w-7xl",
 };
 
+/** Same widths, applied only from lg (desktop with sidebar). */
+const LG_WIDTH: Record<PageWidth, string> = {
+  narrow: "lg:max-w-3xl",
+  default: "lg:max-w-5xl",
+  wide: "lg:max-w-7xl",
+};
+
 interface PageHeaderProps {
   title: ReactNode;
   /** Plain-text title for the compact bar when `title` is not a string. */
@@ -415,8 +422,9 @@ export function PageHeader({
   }, [barTitle]);
 
   const back = backHref ? resolveBack(backHref) : null;
-  // Large-title pages share one left edge (the wide column) so titles never jump sideways.
-  const headerWidth = largeTitle ? WIDTH.wide : WIDTH[width];
+  // On desktop, large-title pages share one left edge (the wide column) so titles never jump
+  // sideways when switching tabs. Below lg each page keeps its own centered column.
+  const headerWidth = largeTitle ? cn(WIDTH[width], "lg:max-w-7xl") : WIDTH[width];
 
   return (
     <>
@@ -486,10 +494,11 @@ export function PageContainer({
   const { largeTitle } = useContext(PageLayoutContext);
   const padding = "px-4 pb-mobile-nav pt-4 md:px-6 lg:px-8 lg:pb-16 lg:pt-5";
   if (largeTitle && width !== "wide") {
-    // Under a large title: same left edge as the title, content keeps its comfortable width.
+    // Desktop: content starts at the title's left edge and keeps its comfortable width.
+    // Below lg: the usual centered column.
     return (
-      <div className={cn("mx-auto", WIDTH.wide, padding)}>
-        <div className={cn(WIDTH[width], className)}>{children}</div>
+      <div className={cn("mx-auto", WIDTH[width], "lg:max-w-7xl", padding)}>
+        <div className={cn(LG_WIDTH[width], className)}>{children}</div>
       </div>
     );
   }

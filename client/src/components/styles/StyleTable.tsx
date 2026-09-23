@@ -168,6 +168,7 @@ function RowMenu({
 }) {
   return (
     <DropdownMenu modal={false}>
+      {/* Same row "•••" button as the Orders table. */}
       <DropdownMenuTrigger
         aria-label={`Actions for ${style.styleNumber}`}
         onKeyDown={(e) => e.stopPropagation()}

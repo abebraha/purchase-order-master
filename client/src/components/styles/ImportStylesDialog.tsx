@@ -14,7 +14,9 @@ import {
   downloadStyleTemplate,
   formatFileSize,
   parsePastedStyles,
+  parseStylesCsv,
   styleDetails,
+  type ParsedPaste,
 } from "./styleUtils";
 
 type Mode = "file" | "paste";
@@ -55,6 +57,8 @@ export function ImportStylesDialog({
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [text, setText] = useState("");
+  /** What the picked CSV file holds (read in the browser); null while reading or if it can't be read. */
+  const [fileStyles, setFileStyles] = useState<ParsedPaste | null>(null);
 
   // Start clean each time the sheet opens.
   useEffect(() => {
@@ -65,13 +69,38 @@ export function ImportStylesDialog({
     setText("");
   }, [open]);
 
+  // Read the picked file so the sheet can say how many styles are new before anything is imported.
+  useEffect(() => {
+    setFileStyles(null);
+    if (!file || fileError) return;
+    let cancelled = false;
+    file
+      .text()
+      .then((content) => {
+        if (!cancelled) setFileStyles(parseStylesCsv(content));
+      })
+      .catch(() => {
+        // Unreadable here: the server still checks the file when it's imported.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file, fileError]);
+
   const parsed = useMemo(() => parsePastedStyles(text), [text]);
   const existingKeys = useMemo(
     () => new Set((styles ?? []).map((s) => s.styleNumber.trim().toLowerCase())),
     [styles],
   );
-  const alreadyInCatalog = parsed.styles.filter((s) => existingKeys.has(s.styleNumber.toLowerCase())).length;
-  const newCount = parsed.styles.length - alreadyInCatalog;
+  const inCatalog = (style: { styleNumber: string }) => existingKeys.has(style.styleNumber.trim().toLowerCase());
+
+  // The rows this import would send: pasted cells, or the picked file once it has been read.
+  const incoming = mode === "paste" ? parsed : file && !fileError ? fileStyles : null;
+  const found = incoming?.styles.length ?? 0;
+  const alreadyInCatalog = incoming ? incoming.styles.filter(inCatalog).length : 0;
+  const newCount = found - alreadyInCatalog;
+  const fileHasNoStyles = mode === "file" && Boolean(fileStyles) && found === 0;
+  const fileProblem = fileError ?? (fileHasNoStyles ? "No style numbers found. Make sure the CSV has a “style_number” column." : null);
 
   const pickFile = (picked: File | null | undefined) => {
     if (!picked) return;
@@ -93,7 +122,7 @@ export function ImportStylesDialog({
 
   const finish = (result: StyleImportResult) => {
     toast({
-      title: result.created > 0 ? "Import Complete" : "No New Styles",
+      title: result.created > 0 ? "Import complete" : "No new styles",
       description: result.message,
     });
     onOpenChange(false);
@@ -110,23 +139,26 @@ export function ImportStylesDialog({
       }
       return;
     }
-    if (!parsed.styles.length) return;
+    if (newCount === 0) return;
     try {
       finish(await bulkCreate.mutateAsync(parsed.styles));
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Couldn't Import Styles",
+        title: "Couldn't import styles",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     }
   };
 
-  const canSubmit = mode === "file" ? Boolean(file) && !fileError : parsed.styles.length > 0;
-  const submitLabel =
-    mode === "paste" && parsed.styles.length > 0
-      ? `Import ${pluralize(parsed.styles.length, "Style", "Styles")}`
-      : "Import";
+  // Label the button with what will actually be added; styles already in the catalog are skipped.
+  const canSubmit =
+    mode === "file" ? Boolean(file) && !fileError && (!fileStyles || newCount > 0) : newCount > 0;
+  const submitLabel = !incoming || found === 0
+    ? "Import"
+    : newCount > 0
+      ? `Import ${pluralize(newCount, "New Style", "New Styles")}`
+      : "Nothing New to Import";
 
   return (
     <ResponsiveDialog
@@ -171,7 +203,7 @@ export function ImportStylesDialog({
                 "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-4 py-6 text-center outline-none transition-colors focus-within:ring-4 focus-within:ring-primary/20 active:scale-[0.99]",
                 dragging
                   ? "border-primary bg-primary/5"
-                  : fileError
+                  : fileProblem
                     ? "border-destructive/40 bg-destructive/5"
                     : "border-border bg-muted/60 hover:bg-accent/60",
               )}
@@ -185,7 +217,7 @@ export function ImportStylesDialog({
                 className="sr-only"
                 onChange={(e) => pickFile(e.target.files?.[0])}
               />
-              <IconTile icon={FileSpreadsheet} color={file && !fileError ? "green" : "blue"} variant="tinted" size="lg" />
+              <IconTile icon={FileSpreadsheet} color={file && !fileProblem ? "green" : "blue"} variant="tinted" size="lg" />
               {file ? (
                 <div className="min-w-0 max-w-full">
                   <div className="truncate text-[17px] font-semibold md:text-[15px]">{file.name}</div>
@@ -211,10 +243,16 @@ export function ImportStylesDialog({
                 </Button>
               </div>
             )}
-            {fileError && (
+            {fileProblem ? (
               <p role="alert" className="text-center text-[13px] font-medium leading-snug text-destructive">
-                {fileError}
+                {fileProblem}
               </p>
+            ) : (
+              found > 0 && (
+                <p role="status" className="text-center text-[13px] leading-snug text-muted-foreground">
+                  {importSummary(found, alreadyInCatalog, incoming?.repeated ?? 0)}
+                </p>
+              )
             )}
 
             <div className="space-y-2.5 rounded-xl bg-muted px-3.5 py-3">
@@ -249,7 +287,7 @@ export function ImportStylesDialog({
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label htmlFor={pasteId} className="block text-[13px] font-medium text-muted-foreground">
-                Pasted cells
+                Pasted Cells
               </label>
               <Textarea
                 id={pasteId}
@@ -273,19 +311,32 @@ export function ImportStylesDialog({
               (parsed.styles.length > 0 ? (
                 <ListSection
                   header={`${pluralize(parsed.styles.length, "style")} found`}
-                  footer={previewFooter(parsed.styles.length, alreadyInCatalog, newCount, parsed.skippedHeader, parsed.repeated)}
+                  headerAction={
+                    alreadyInCatalog > 0 && (
+                      <span className="text-[13px] tabular-nums text-muted-foreground">
+                        {newCount > 0 ? `${newCount} new · ${alreadyInCatalog} in catalog` : "All in catalog"}
+                      </span>
+                    )
+                  }
+                  footer={[
+                    alreadyInCatalog > 0 && importSummary(found, alreadyInCatalog, 0),
+                    parsed.skippedHeader && "Header row skipped.",
+                    parsed.repeated > 0 && `${pluralize(parsed.repeated, "repeated row")} ignored.`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   className="[&>div.bg-card]:bg-muted"
                 >
                   {parsed.styles.slice(0, PREVIEW_ROWS).map((s, i) => {
-                    const inCatalog = existingKeys.has(s.styleNumber.toLowerCase());
+                    const existing = inCatalog(s);
                     return (
                       <ListRow key={`${s.styleNumber}-${i}`}>
                         <div className="flex items-baseline gap-2.5 text-[15px] md:text-sm">
-                          <span className={cn("shrink-0 font-medium", inCatalog && "text-muted-foreground")}>{s.styleNumber}</span>
+                          <span className={cn("shrink-0 font-medium", existing && "text-muted-foreground")}>{s.styleNumber}</span>
                           <span className="min-w-0 flex-1 truncate text-muted-foreground">
                             {styleDetails(s) || "No details"}
                           </span>
-                          {inCatalog && <span className="shrink-0 text-[13px] text-muted-foreground md:text-xs">In catalog</span>}
+                          {existing && <span className="shrink-0 text-[13px] text-muted-foreground md:text-xs">In catalog</span>}
                         </div>
                       </ListRow>
                     );
@@ -310,18 +361,18 @@ export function ImportStylesDialog({
   );
 }
 
-function previewFooter(total: number, existing: number, fresh: number, skippedHeader: boolean, repeated: number): string {
-  const parts: string[] = [];
-  if (existing > 0) {
-    parts.push(
-      fresh > 0
-        ? `${pluralize(fresh, "new style")} will be added; ${existing} already in your catalog will be skipped.`
-        : total === 1
+/** "3 new styles will be added; 1 already in your catalog will be skipped." */
+function importSummary(found: number, existing: number, repeated: number): string {
+  const fresh = found - existing;
+  const parts = [
+    existing === 0
+      ? `${pluralize(fresh, "new style")} will be added.`
+      : fresh === 0
+        ? found === 1
           ? "It's already in your catalog."
-          : `All ${total} are already in your catalog.`,
-    );
-  }
-  if (skippedHeader) parts.push("Header row skipped.");
+          : `All ${found} are already in your catalog.`
+        : `${pluralize(fresh, "new style")} will be added; ${existing} already in your catalog will be skipped.`,
+  ];
   if (repeated > 0) parts.push(`${pluralize(repeated, "repeated row")} ignored.`);
   return parts.join(" ");
 }

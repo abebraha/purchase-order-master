@@ -90,7 +90,7 @@ export function StyleFormDialog({
         ? await update.mutateAsync({ id: style.id, ...values })
         : await create.mutateAsync(values);
       toast({
-        title: style ? "Changes Saved" : "Style Added",
+        title: style ? "Changes saved" : "Style added",
         description: style
           ? `${saved.styleNumber} is up to date.`
           : `${saved.styleNumber} is ready to use on purchase orders.`,
@@ -104,7 +104,7 @@ export function StyleFormDialog({
       }
       toast({
         variant: "destructive",
-        title: style ? "Couldn't Save Changes" : "Couldn't Add Style",
+        title: style ? "Couldn't save changes" : "Couldn't add style",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     }
