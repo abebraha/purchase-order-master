@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ChevronLeft,
@@ -63,14 +63,59 @@ export function useHideMobileNav() {
 // Shell
 // ---------------------------------------------------------------------------
 
+/**
+ * New screens open at the top; Back/Forward returns to where you were (like iOS), so going
+ * from a long list into a PO and back doesn't lose your place.
+ */
+function useScrollRestoration(location: string) {
+  const positions = useRef(new Map<string, number>());
+  const currentKey = useRef("");
+  const poppedRef = useRef(false);
+
+  useEffect(() => {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    const onPop = () => {
+      poppedRef.current = true;
+    };
+    const onScroll = () => {
+      positions.current.set(currentKey.current, window.scrollY);
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  // Layout effect: runs before paint, so scroll events caused by the new screen's height are
+  // attributed to the new screen and never overwrite the previous screen's saved position.
+  useLayoutEffect(() => {
+    currentKey.current = location + window.location.search;
+    if (!poppedRef.current) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    poppedRef.current = false;
+    const target = positions.current.get(currentKey.current) ?? 0;
+    let frames = 0;
+    const restore = () => {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (maxScroll >= target || frames > 40) {
+        window.scrollTo(0, target);
+        return;
+      }
+      frames++;
+      requestAnimationFrame(restore); // content may still be rendering
+    };
+    restore();
+  }, [location]);
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNavHidden, setMobileNavHidden] = useState(false);
   const [location] = useLocation();
-
-  // Start each screen at the top (list → detail → back feels native).
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [location]);
+  useScrollRestoration(location);
 
   return (
     <MobileNavContext.Provider value={{ setHidden: setMobileNavHidden }}>

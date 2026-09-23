@@ -15,6 +15,7 @@ import {
   SettingsSchema,
   computeTotals,
   describeChanges,
+  formatUsd,
   type AddressBook,
   type AppSettings,
   type DeletedPurchaseOrder,
@@ -269,7 +270,7 @@ export async function createPurchaseOrder(input: POWriteInput): Promise<Purchase
         tx,
         po,
         "created",
-        `Created with ${po.itemCount} line${po.itemCount === 1 ? "" : "s"} · ${po.totalQuantity.toLocaleString("en-US")} units · $${po.totalAmount.toFixed(2)}`,
+        `Created with ${po.itemCount} line${po.itemCount === 1 ? "" : "s"} · ${po.totalQuantity.toLocaleString("en-US")} units · ${formatUsd(po.totalAmount)}`,
       );
       return po;
     });

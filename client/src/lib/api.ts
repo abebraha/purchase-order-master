@@ -1,5 +1,5 @@
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
-import { queryClient } from "./queryClient";
+import { ApiError, queryClient } from "./queryClient";
 import type {
   AddressBook,
   AppSettings,
@@ -13,11 +13,7 @@ import type {
   StyleRecord,
 } from "@shared/po";
 
-export class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+export { ApiError };
 
 /** JSON fetch helper. Throws ApiError with the server's message on non-2xx responses. */
 export async function api<T>(method: string, url: string, body?: unknown): Promise<T> {

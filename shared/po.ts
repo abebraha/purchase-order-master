@@ -253,6 +253,11 @@ export const SettingsSchema = z.object({
 // Pure helpers
 // ---------------------------------------------------------------------------
 
+/** "$1,234.56" — used in history summaries (server and client). */
+export function formatUsd(n: number): string {
+  return `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function roundMoney(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -362,7 +367,7 @@ export function describeChanges(before: PurchaseOrder | null | undefined, after:
   if (changedLines) changes.push(`${changedLines} line${changedLines === 1 ? "" : "s"} changed qty/price`);
 
   if (roundMoney(before.totalAmount) !== roundMoney(after.totalAmount)) {
-    changes.push(`Total: $${before.totalAmount.toFixed(2)} → $${after.totalAmount.toFixed(2)}`);
+    changes.push(`Total: ${formatUsd(before.totalAmount)} → ${formatUsd(after.totalAmount)}`);
   }
   return changes;
 }
