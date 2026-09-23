@@ -98,7 +98,7 @@ export function DataSection() {
         href="/api/backup"
         leading={<IconTile icon={Download} color="green" />}
         title="Download Full Backup"
-        subtitle="Orders, history, styles and settings"
+        subtitle="Orders, history, styles, customers and settings"
         value={<FileKind>JSON</FileKind>}
         onClick={() => toast({ title: "Preparing backup", description: "Your download will start in a moment." })}
       />

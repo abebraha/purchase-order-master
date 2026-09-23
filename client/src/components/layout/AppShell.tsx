@@ -10,6 +10,7 @@ import {
   Settings,
   Sun,
   Tags,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
     icon: FileText,
     match: (p) => p.startsWith("/purchase-orders") && p !== "/purchase-orders/new",
   },
+  { href: "/customers", label: "Customers", tabLabel: "Customers", icon: Users, match: (p) => p.startsWith("/customers") },
   { href: "/styles", label: "Styles", tabLabel: "Styles", icon: Tags, match: (p) => p.startsWith("/styles") },
   { href: "/settings", label: "Settings", tabLabel: "Settings", icon: Settings, match: (p) => p.startsWith("/settings") },
 ];
@@ -278,7 +280,7 @@ function TabBar({ path }: { path: string }) {
       aria-label="Main"
       className="material-bar hairline-t no-print fixed inset-x-0 bottom-0 z-40 pb-safe lg:hidden"
     >
-      <div className="mx-auto grid h-[var(--mobile-nav-height)] max-w-md grid-cols-4">
+      <div className="mx-auto grid h-[var(--mobile-nav-height)] max-w-md grid-cols-5">
         {NAV.map((item) => {
           const active = item.match(path);
           return (

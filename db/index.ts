@@ -87,6 +87,37 @@ const migrations: string[] = [
     value JSONB NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
+
+  // Sign-in: persistent sessions (so logins survive redeploys) and server-generated secrets.
+  // Kept out of app_settings on purpose so they never end up in a backup download.
+  `CREATE TABLE IF NOT EXISTS auth_sessions (
+    sid TEXT PRIMARY KEY,
+    sess JSONB NOT NULL,
+    expire TIMESTAMP NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS auth_sessions_expire_idx ON auth_sessions (expire)`,
+  `CREATE TABLE IF NOT EXISTS app_secrets (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
+
+  // Customers: saved details that prefill new purchase orders (POs keep their own copy).
+  `CREATE TABLE IF NOT EXISTS customers (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    contact_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    ship_to TEXT NOT NULL DEFAULT '',
+    bill_to TEXT NOT NULL DEFAULT '',
+    terms TEXT NOT NULL DEFAULT '',
+    special_instructions TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS customers_name_lower_idx ON customers (lower(name))`,
 ];
 
 async function migrate() {

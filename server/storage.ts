@@ -6,6 +6,8 @@ import {
   poItems,
   poRevisions,
   appSettings,
+  customers,
+  type CustomerRow,
   type PurchaseOrderRow,
 } from "@db/schema";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
@@ -21,6 +23,8 @@ import {
   formatUsd,
   type AddressBook,
   type AppSettings,
+  type CustomerFormValues,
+  type CustomerRecord,
   type DeletedPurchaseOrder,
   type POItem,
   type POStatus,
@@ -688,10 +692,11 @@ async function dumpTable(table: string, orderBy: string): Promise<unknown[]> {
 }
 
 export async function exportBackup() {
-  const [pos, items, styleRows, revisions, settings] = await Promise.all([
+  const [pos, items, styleRows, customerRows, revisions, settings] = await Promise.all([
     dumpTable("purchase_orders", "id"),
     dumpTable("po_items", "id"),
     dumpTable("styles", "id"),
+    dumpTable("customers", "id"),
     dumpTable("po_revisions", "id"),
     dumpTable("app_settings", "key"),
   ]);
@@ -703,12 +708,14 @@ export async function exportBackup() {
       purchaseOrders: pos.length,
       poItems: items.length,
       styles: styleRows.length,
+      customers: customerRows.length,
       revisions: revisions.length,
     },
     tables: {
       purchase_orders: pos,
       po_items: items,
       styles: styleRows,
+      customers: customerRows,
       po_revisions: revisions,
       app_settings: settings,
     },
@@ -992,6 +999,89 @@ export async function listStyleSuggestions(): Promise<StyleSuggestion[]> {
         b.lastOrdered.localeCompare(a.lastOrdered) ||
         a.styleNumber.localeCompare(b.styleNumber, "en", { numeric: true }),
     );
+}
+
+// ---------------------------------------------------------------------------
+// Customers
+// ---------------------------------------------------------------------------
+
+function toCustomer(row: CustomerRow): CustomerRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    contactName: row.contactName ?? "",
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    shipTo: row.shipTo ?? "",
+    billTo: row.billTo ?? "",
+    terms: row.terms ?? "",
+    specialInstructions: row.specialInstructions ?? "",
+    notes: row.notes ?? "",
+    createdAt: toISO(row.createdAt)!,
+    updatedAt: toISO(row.updatedAt)!,
+  };
+}
+
+function customerValues(input: CustomerFormValues) {
+  return {
+    name: input.name.trim(),
+    contactName: input.contactName.trim(),
+    email: input.email.trim(),
+    phone: input.phone.trim(),
+    shipTo: input.shipTo.trim(),
+    billTo: input.billTo.trim(),
+    terms: input.terms.trim(),
+    specialInstructions: input.specialInstructions.trim(),
+    notes: input.notes.trim(),
+  };
+}
+
+export async function listCustomers(): Promise<CustomerRecord[]> {
+  const rows = await db.select().from(customers).orderBy(sql`lower(${customers.name})`, asc(customers.id));
+  return rows.map(toCustomer);
+}
+
+async function customerNameTaken(name: string, excludeId?: number) {
+  const rows = await db
+    .select({ id: customers.id })
+    .from(customers)
+    .where(sql`lower(${customers.name}) = lower(${name.trim()})`);
+  return rows.some((r) => r.id !== excludeId);
+}
+
+const customerExists = (name: string) => `A customer named ${name.trim()} already exists.`;
+
+export async function createCustomer(input: CustomerFormValues): Promise<CustomerRecord> {
+  if (await customerNameTaken(input.name)) throw new HttpError(409, customerExists(input.name));
+  try {
+    const [row] = await db.insert(customers).values(customerValues(input)).returning();
+    return toCustomer(row);
+  } catch (error) {
+    if (isUniqueViolation(error)) throw new HttpError(409, customerExists(input.name));
+    throw error;
+  }
+}
+
+export async function updateCustomer(id: number, input: CustomerFormValues): Promise<CustomerRecord> {
+  if (await customerNameTaken(input.name, id)) throw new HttpError(409, customerExists(input.name));
+  try {
+    const [row] = await db
+      .update(customers)
+      .set({ ...customerValues(input), updatedAt: new Date() })
+      .where(eq(customers.id, id))
+      .returning();
+    if (!row) throw new HttpError(404, "Customer not found");
+    return toCustomer(row);
+  } catch (error) {
+    if (isUniqueViolation(error)) throw new HttpError(409, customerExists(input.name));
+    throw error;
+  }
+}
+
+/** Removes a saved customer. Purchase orders keep the details they were created with. */
+export async function deleteCustomer(id: number): Promise<void> {
+  const deleted = await db.delete(customers).where(eq(customers.id, id)).returning({ id: customers.id });
+  if (!deleted.length) throw new HttpError(404, "Customer not found");
 }
 
 // ---------------------------------------------------------------------------

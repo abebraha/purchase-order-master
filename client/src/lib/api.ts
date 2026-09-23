@@ -1,8 +1,10 @@
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
-import { ApiError, queryClient } from "./queryClient";
+import { ApiError, queryClient, reportUnauthorized } from "./queryClient";
 import type {
   AddressBook,
   AppSettings,
+  CustomerFormValues,
+  CustomerRecord,
   DeletedPurchaseOrder,
   POFormValues,
   POStatus,
@@ -33,6 +35,8 @@ export async function api<T>(method: string, url: string, body?: unknown): Promi
     data = text;
   }
   if (!res.ok) {
+    // Sign-in requests answer 401 for a wrong password; anything else means the session ended.
+    if (res.status === 401 && !url.startsWith("/api/auth/")) reportUnauthorized();
     const message =
       (data && typeof data === "object" && (data.message || data.error)) ||
       (typeof data === "string" && data) ||
@@ -58,6 +62,7 @@ export const keys = {
   styles: () => ["/api/styles"] as const,
   /** Refreshed with the catalog: every "/api/styles" invalidation matches this key by prefix. */
   styleSuggestions: () => ["/api/styles/suggestions"] as const,
+  customers: () => ["/api/customers"] as const,
   addresses: () => ["/api/addresses"] as const,
   settings: () => ["/api/settings"] as const,
 };
@@ -117,6 +122,10 @@ export function useStyles() {
 /** Style numbers used on purchase orders that aren't in the catalog yet, most ordered first. */
 export function useStyleSuggestions() {
   return useQuery<StyleSuggestion[]>({ queryKey: keys.styleSuggestions() });
+}
+
+export function useCustomers() {
+  return useQuery<CustomerRecord[]>({ queryKey: keys.customers() });
 }
 
 export function useAddresses() {
@@ -278,6 +287,36 @@ export function useImportStylesCsv() {
       return api<StyleImportResult>("POST", "/api/styles/import", form);
     },
     onSuccess: () => invalidateStyles(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Customer mutations
+// ---------------------------------------------------------------------------
+
+function invalidateCustomers() {
+  return invalidateByPrefix(queryClient, "/api/customers");
+}
+
+export function useCreateCustomer() {
+  return useMutation({
+    mutationFn: (values: CustomerFormValues) => api<CustomerRecord>("POST", "/api/customers", values),
+    onSuccess: () => invalidateCustomers(),
+  });
+}
+
+export function useUpdateCustomer() {
+  return useMutation({
+    mutationFn: ({ id, ...values }: CustomerFormValues & { id: number }) =>
+      api<CustomerRecord>("PUT", `/api/customers/${id}`, values),
+    onSuccess: () => invalidateCustomers(),
+  });
+}
+
+export function useDeleteCustomer() {
+  return useMutation({
+    mutationFn: (id: number) => api<{ success: true }>("DELETE", `/api/customers/${id}`),
+    onSuccess: () => invalidateCustomers(),
   });
 }
 

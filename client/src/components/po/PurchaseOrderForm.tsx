@@ -14,9 +14,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch, type Control, type FieldErrors, type FieldPath } from "react-hook-form";
 import { Archive, ArrowDownToLine, CopyPlus, Eye, History, Loader2, RefreshCw } from "lucide-react";
-import type { AppSettings, POFormValues, PurchaseOrder, StyleRecord } from "@shared/po";
+import type { AppSettings, CustomerFormValues, POFormValues, PurchaseOrder, StyleRecord } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
 import { ResponsiveDialog } from "@/components/common";
+import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
+import { PREFILL_FIELDS } from "@/components/customers/customerUtils";
 import { FormSection, IconTile, ListRow, ListSection, type IosColor } from "@/components/kit";
 import PODocument from "@/components/po/PODocument";
 import {
@@ -48,6 +50,7 @@ import { documentFromFormValues, type PODocumentData } from "@/lib/document";
 import { formatDateTime, formatMoney, formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressField } from "./AddressField";
+import { CustomerSection, useCustomerPicker } from "./CustomerSection";
 import { LineItemsEditor } from "./LineItemsEditor";
 import type { StyleSelection } from "./StyleCombobox";
 import { OrderSection } from "./editor-order-section";
@@ -60,6 +63,7 @@ import {
   formatDraftTime,
   leaveEditor,
   loadDraft,
+  noCustomerDetails,
   sameEditorValues,
   saveDraft,
   toFormValues,
@@ -200,6 +204,10 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
   });
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const [newCustomer, setNewCustomer] = useState<Partial<CustomerFormValues> | null>(null);
+  const newCustomerOpenRef = useRef(false);
+  newCustomerOpenRef.current = newCustomer !== null;
+  const customerPicker = useCustomerPicker(form, settings);
 
   const backHref = isEdit && base ? `/purchase-orders/${base.id}` : mode === "duplicate" && source ? `/purchase-orders/${source.id}` : "/purchase-orders";
   const title = isEdit && base ? `Edit PO #${base.poNumber}` : "New Purchase Order";
@@ -506,19 +514,35 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     return () => cancelAnimationFrame(raf);
   }, [focusRequest]);
 
-  // ⌘S / Ctrl+S saves.
+  // ⌘S / Ctrl+S saves (not while adding a customer on top of the order).
   const submitRef = useRef(submit);
   submitRef.current = submit;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (!busyRef.current) submitRef.current();
+        if (!busyRef.current && !newCustomerOpenRef.current) submitRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // ---- New customer --------------------------------------------------------
+
+  /** Opens "Add Customer"; with no customer picked, it starts from the details typed on this order. */
+  const openNewCustomer = () => {
+    const values = getValues();
+    const defaults = noCustomerDetails(settings);
+    const seed: Partial<CustomerFormValues> = {};
+    if (!customerPicker.selected) {
+      for (const field of PREFILL_FIELDS) {
+        const value = (values[field] ?? "").trim();
+        if (value && value !== defaults[field].trim()) seed[field] = value;
+      }
+    }
+    setNewCustomer(seed);
+  };
 
   // ---- Preview -------------------------------------------------------------
 
@@ -694,6 +718,8 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
               </div>
             )}
 
+            <CustomerSection picker={customerPicker} onAddCustomer={openNewCustomer} />
+
             <OrderSection mode={mode} poId={base?.id} originalNumber={base?.poNumber} suggestedPoNumber={suggestedPoNumber} />
 
             <FormSection title="Addresses" id="po-addresses">
@@ -819,6 +845,15 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
         onReviewLatest={() => void reviewLatest()}
         onSaveMine={() => void runSave(false, { overwrite: true })}
         onKeepEditing={() => setConflict(null)}
+      />
+
+      <CustomerFormDialog
+        open={newCustomer !== null}
+        onOpenChange={(open) => !open && setNewCustomer(null)}
+        customer={null}
+        customers={customerPicker.customers}
+        initialValues={newCustomer ?? undefined}
+        onSaved={(saved) => customerPicker.choose(saved)}
       />
 
       <ResponsiveDialog

@@ -60,10 +60,45 @@ export const poRevisions = pgTable("po_revisions", {
   poIdIdx: index("po_revisions_po_id_idx").on(t.poId),
 }));
 
+// Saved customers. Picking one on a new PO copies its addresses, terms and instructions into the
+// form; purchase orders keep their own copy and never reference this table, so editing or deleting
+// a customer never changes a saved PO. Names are unique ignoring case (index in db/index.ts).
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  contactName: text("contact_name").notNull().default(''),
+  email: text("email").notNull().default(''),
+  phone: text("phone").notNull().default(''),
+  shipTo: text("ship_to").notNull().default(''),
+  billTo: text("bill_to").notNull().default(''),
+  terms: text("terms").notNull().default(''),
+  specialInstructions: text("special_instructions").notNull().default(''),
+  notes: text("notes").notNull().default(''),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Sign-in sessions (see server/session-store.ts). Rows expire on their own; nothing else
+// references them.
+export const authSessions = pgTable("auth_sessions", {
+  sid: text("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+}, (t) => ({
+  expireIdx: index("auth_sessions_expire_idx").on(t.expire),
+}));
+
+// Server-generated secrets (e.g. the session signing key). Never exported in backups.
+export const appSecrets = pgTable("app_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const stylesRelations = relations(styles, ({ many }) => ({
@@ -92,3 +127,4 @@ export type NewPurchaseOrder = InferModel<typeof purchaseOrders, "insert">;
 export type PoItem = InferModel<typeof poItems>;
 export type NewPoItem = InferModel<typeof poItems, "insert">;
 export type PoRevisionRow = InferModel<typeof poRevisions>;
+export type CustomerRow = InferModel<typeof customers>;
