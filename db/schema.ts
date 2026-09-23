@@ -1,7 +1,9 @@
-import { pgTable, text, serial, timestamp, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, numeric, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { relations, type InferModel } from "drizzle-orm";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
-import { z } from "zod";
+
+// IMPORTANT: this file must mirror the live database exactly (see db/index.ts, which
+// creates/migrates tables additively on startup). Never rename or drop a column here —
+// production purchase-order history lives in these tables.
 
 export const styles = pgTable("styles", {
   id: serial("id").primaryKey(),
@@ -24,17 +26,44 @@ export const purchaseOrders = pgTable("purchase_orders", {
   terms: text("terms").notNull().default('Net 30'),
   dueDate: timestamp("due_date").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Added in the redesign (additive migrations in db/index.ts)
+  specialInstructions: text("special_instructions").notNull().default(''),
+  notes: text("notes").notNull().default(''),
+  status: text("status").notNull().default('open'),
+  updatedAt: timestamp("updated_at"),
+  archivedAt: timestamp("archived_at"),
 });
 
 export const poItems = pgTable("po_items", {
   id: serial("id").primaryKey(),
-  poId: serial("po_id").references(() => purchaseOrders.id),
-  styleId: serial("style_id"),
+  poId: integer("po_id").references(() => purchaseOrders.id),
+  styleId: integer("style_id"),
   manualStyleNumber: text("manual_style_number").default(''),
   color: text("color").notNull(),
   description: text("description").notNull(),
   quantity: numeric("quantity").notNull(),
   price: numeric("price").notNull(),
+});
+
+// Append-only audit log. Every create/edit/status change/archive/delete stores a full JSON
+// snapshot of the PO, so no version of a purchase order is ever lost. No foreign key on
+// purpose: revisions must outlive a permanently deleted PO so it can be recovered.
+export const poRevisions = pgTable("po_revisions", {
+  id: serial("id").primaryKey(),
+  poId: integer("po_id").notNull(),
+  poNumber: text("po_number").notNull(),
+  action: text("action").notNull(),
+  summary: text("summary").notNull().default(''),
+  snapshot: jsonb("snapshot").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  poIdIdx: index("po_revisions_po_id_idx").on(t.poId),
+}));
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const stylesRelations = relations(styles, ({ many }) => ({
@@ -56,18 +85,10 @@ export const poItemsRelations = relations(poItems, ({ one }) => ({
   }),
 }));
 
-export const insertStyleSchema = createInsertSchema(styles);
-export const selectStyleSchema = createSelectSchema(styles);
-
-export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders);
-export const selectPurchaseOrderSchema = createSelectSchema(purchaseOrders);
-
-export const insertPoItemSchema = createInsertSchema(poItems);
-export const selectPoItemSchema = createSelectSchema(poItems);
-
 export type Style = InferModel<typeof styles>;
 export type NewStyle = InferModel<typeof styles, "insert">;
-export type PurchaseOrder = InferModel<typeof purchaseOrders>;
+export type PurchaseOrderRow = InferModel<typeof purchaseOrders>;
 export type NewPurchaseOrder = InferModel<typeof purchaseOrders, "insert">;
 export type PoItem = InferModel<typeof poItems>;
 export type NewPoItem = InferModel<typeof poItems, "insert">;
+export type PoRevisionRow = InferModel<typeof poRevisions>;

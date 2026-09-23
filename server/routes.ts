@@ -1,383 +1,338 @@
-import type { Express } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { db } from "@db";
-import { styles, purchaseOrders, poItems } from "@db/schema";
-import { desc, eq } from "drizzle-orm";
 import multer from "multer";
-import { parse } from "csv-parse";
-import { Readable } from "stream";
+import { parse } from "csv-parse/sync";
+import { z } from "zod";
+import {
+  DATE_INPUT_RE,
+  PO_STATUSES,
+  PO_TYPES,
+  SettingsSchema,
+  StyleFormSchema,
+  incrementPoNumber,
+  type PurchaseOrder,
+} from "../shared/po";
+import {
+  HttpError,
+  bulkCreateStyles,
+  createPurchaseOrder,
+  createStyle,
+  deletePurchaseOrder,
+  deleteStyle,
+  exportBackup,
+  getPurchaseOrder,
+  getSettings,
+  listAddresses,
+  listDeletedPurchaseOrders,
+  listPurchaseOrders,
+  listRevisions,
+  listStyles,
+  poNumberExists,
+  recoverDeletedPurchaseOrder,
+  saveSettings,
+  setArchived,
+  setPurchaseOrderStatus,
+  suggestNextPoNumber,
+  updatePurchaseOrder,
+  updateStyle,
+  type ArchivedFilter,
+  type POWriteInput,
+} from "./storage";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+type Handler = (req: Request, res: Response) => Promise<unknown>;
+
+/** Wraps an async handler: HttpErrors and validation errors become clean JSON responses. */
+function route(handler: Handler) {
+  return async (req: Request, res: Response, _next: NextFunction) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return res.status(error.status).json({ error: error.message, message: error.message });
+      }
+      if (error instanceof z.ZodError) {
+        const first = error.issues[0];
+        const where = first?.path?.length ? `${first.path.join(".")}: ` : "";
+        const message = `${where}${first?.message ?? "Invalid request"}`;
+        return res.status(400).json({ error: message, message, issues: error.issues });
+      }
+      console.error(`${req.method} ${req.path} failed:`, error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return res.status(500).json({ error: "Something went wrong", message });
+    }
+  };
+}
+
+function idParam(req: Request): number {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) throw new HttpError(400, "Invalid id");
+  return id;
+}
+
+/**
+ * Accepts `yyyy-MM-dd` (new UI; stored at 12:00 UTC so the calendar day is stable across US
+ * time zones) or any ISO timestamp (older clients).
+ */
+const dateField = z.union([z.string(), z.date()]).transform((value, ctx) => {
+  const d =
+    typeof value === "string" && DATE_INPUT_RE.test(value)
+      ? new Date(`${value}T12:00:00.000Z`)
+      : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid date" });
+    return z.NEVER;
+  }
+  return d;
+});
+
+const numberField = z.union([z.number(), z.string()]).transform((value, ctx) => {
+  const n = typeof value === "number" ? value : Number(String(value).replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(n)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Must be a number" });
+    return z.NEVER;
+  }
+  return n;
+});
+
+const itemSchema = z.object({
+  styleId: z.union([z.number(), z.null()]).optional().transform((v) => (v && v > 0 ? v : null)),
+  manualStyleNumber: z.string().optional().default(""),
+  styleNumber: z.string().optional(),
+  color: z.string().optional().default(""),
+  description: z.string().optional().default(""),
+  quantity: numberField.refine((n) => n > 0, "Quantity must be more than 0"),
+  price: numberField.refine((n) => n >= 0, "Price can't be negative"),
+});
+
+const poWriteSchema = z
+  .object({
+    poNumber: z.string().trim().min(1, "PO number is required").max(64),
+    poType: z.string().trim().min(1).default("Regular PO"),
+    status: z.enum(PO_STATUSES).optional(),
+    terms: z.string().trim().min(1).default("Net 30"),
+    orderDate: dateField,
+    startShipDate: dateField,
+    cancelDate: dateField,
+    shipTo: z.string().trim().min(1, "Ship To address is required"),
+    billTo: z.string().trim().min(1, "Bill To address is required"),
+    // Optional so that older clients which don't send these fields never blank them on edit.
+    specialInstructions: z.string().optional(),
+    notes: z.string().optional(),
+    items: z.array(itemSchema).min(1, "Add at least one line item"),
+  })
+  .transform((v) => ({
+    ...v,
+    items: v.items.map((i) => ({
+      styleId: i.styleId,
+      manualStyleNumber: (i.manualStyleNumber || i.styleNumber || "").trim(),
+      color: i.color,
+      description: i.description,
+      quantity: i.quantity,
+      price: i.price,
+    })),
+  }));
+
+/** `current` is the saved PO when editing: fields the client omitted keep their saved values. */
+function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput {
+  const v = poWriteSchema.parse(body);
+  if (!(PO_TYPES as readonly string[]).includes(v.poType)) {
+    throw new HttpError(400, `PO type must be one of: ${PO_TYPES.join(", ")}`);
+  }
+  if (v.items.some((i) => !i.manualStyleNumber && !i.styleId)) {
+    throw new HttpError(400, "Every line item needs a style number");
+  }
+  return {
+    ...v,
+    status: v.status ?? current?.status ?? "open",
+    specialInstructions: v.specialInstructions ?? current?.specialInstructions ?? "",
+    notes: v.notes ?? current?.notes ?? "",
+  };
+}
+
+function archivedFilter(value: unknown): ArchivedFilter {
+  return value === "only" || value === "include" ? value : "exclude";
+}
+
+function pickColumn(record: Record<string, string>, candidates: string[]): string {
+  const normalized = (s: string) => s.toLowerCase().replace(/[^a-z0-9#]/g, "");
+  const wanted = candidates.map(normalized);
+  const key = Object.keys(record).find((k) => wanted.includes(normalized(k)));
+  return key ? String(record[key] ?? "").trim() : "";
+}
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
-  // Style Number Routes
-  app.get("/api/styles", async (req, res) => {
-    try {
-      const allStyles = await db.query.styles.findMany({
-        orderBy: [desc(styles.styleNumber)],
-      });
-      res.json(allStyles);
-    } catch (error) {
-      console.error('Error fetching styles:', error);
-      res.status(500).json({ error: 'Failed to fetch styles' });
-    }
-  });
+  // -------------------------------------------------------------------------
+  // Styles
+  // -------------------------------------------------------------------------
 
-  app.post("/api/styles", async (req, res) => {
-    try {
-      const { styleNumber, color = '', description = '' } = req.body;
-      const newStyle = await db.insert(styles)
-        .values({ 
-          styleNumber, 
-          color, 
-          description 
-        })
-        .returning();
-      res.json(newStyle[0]);
-    } catch (error) {
-      console.error('Error creating style:', error);
-      res.status(500).json({ error: 'Failed to create style' });
-    }
-  });
+  app.get("/api/styles", route(async (_req, res) => {
+    res.json(await listStyles());
+  }));
 
-  app.post("/api/styles/import", upload.single('file'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
+  app.post("/api/styles", route(async (req, res) => {
+    const input = StyleFormSchema.parse({
+      styleNumber: req.body?.styleNumber ?? "",
+      color: req.body?.color ?? "",
+      description: req.body?.description ?? "",
+    });
+    res.status(201).json(await createStyle(input));
+  }));
 
+  app.post("/api/styles/bulk", route(async (req, res) => {
+    const records = z
+      .array(z.object({
+        styleNumber: z.string(),
+        color: z.string().optional().default(""),
+        description: z.string().optional().default(""),
+      }))
+      .max(10000)
+      .parse(req.body?.styles ?? []);
+    const result = await bulkCreateStyles(records);
+    res.json({
+      ...result,
+      message: `Added ${result.created} style${result.created === 1 ? "" : "s"}${result.skipped ? `, skipped ${result.skipped} duplicate or blank` : ""}.`,
+    });
+  }));
+
+  app.post("/api/styles/import", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new HttpError(400, "No file uploaded");
+    let rows: Record<string, string>[];
     try {
-      const records: { styleNumber: string; color: string; description: string; }[] = [];
-      const parser = parse({
+      rows = parse(req.file.buffer.toString("utf8").replace(/^\uFEFF/, ""), {
         columns: true,
         skip_empty_lines: true,
-        trim: true
-      });
-
-      parser.on('readable', function() {
-        let record;
-        while ((record = parser.read()) !== null) {
-          // Find the style_number column (case-insensitive)
-          const styleNumberKey = Object.keys(record).find(
-            key => key.toLowerCase() === 'style_number'
-          );
-
-          if (styleNumberKey && record[styleNumberKey]) {
-            const styleNumber = record[styleNumberKey].trim();
-            if (styleNumber) {
-              records.push({ 
-                styleNumber,
-                color: '',
-                description: ''
-              });
-            }
-          }
-        }
-      });
-
-      const parsePromise = new Promise((resolve, reject) => {
-        parser.on('error', reject);
-        parser.on('end', resolve);
-      });
-
-      // Convert buffer to readable stream
-      const bufferStream = new Readable();
-      bufferStream.push(req.file.buffer);
-      bufferStream.push(null);
-      bufferStream.pipe(parser);
-
-      await parsePromise;
-
-      if (records.length === 0) {
-        return res.status(400).json({ 
-          error: 'No valid style numbers found in the CSV file',
-          message: 'Please ensure your CSV file has a "style_number" column and contains valid style numbers.'
-        });
-      }
-
-      // Insert records one by one to handle duplicates gracefully
-      const results = [];
-      for (const record of records) {
-        try {
-          const [inserted] = await db.insert(styles)
-            .values(record)
-            .onConflictDoNothing({ target: styles.styleNumber })
-            .returning();
-          if (inserted) {
-            results.push(inserted);
-          }
-        } catch (error) {
-          console.error('Error inserting style:', record, error);
-        }
-      }
-
-      res.json({
-        message: `Successfully imported ${results.length} style numbers`,
-        imported: results
+        trim: true,
+        relax_column_count: true,
       });
     } catch (error) {
-      console.error('Error importing CSV:', error);
-      res.status(500).json({
-        error: 'Failed to import style numbers',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
+      throw new HttpError(400, `Could not read that CSV file: ${error instanceof Error ? error.message : "unknown error"}`);
     }
-  });
+    const records = rows
+      .map((row) => ({
+        styleNumber: pickColumn(row, ["style_number", "style number", "style #", "style no", "style", "stylenumber"]),
+        color: pickColumn(row, ["color", "colour"]),
+        description: pickColumn(row, ["description", "desc"]),
+      }))
+      .filter((r) => r.styleNumber);
+    if (records.length === 0) {
+      throw new HttpError(400, 'No style numbers found. Make sure the CSV has a "style_number" column.');
+    }
+    const result = await bulkCreateStyles(records);
+    res.json({
+      ...result,
+      message: `Imported ${result.created} style${result.created === 1 ? "" : "s"}${result.skipped ? `, skipped ${result.skipped} already in the catalog` : ""}.`,
+    });
+  }));
 
-  app.put("/api/styles/:id", async (req, res) => {
-    const updated = await db
-      .update(styles)
-      .set(req.body)
-      .where(eq(styles.id, parseInt(req.params.id)))
-      .returning();
-    res.json(updated[0]);
-  });
+  app.put("/api/styles/:id", route(async (req, res) => {
+    const input = StyleFormSchema.parse({
+      styleNumber: req.body?.styleNumber ?? "",
+      color: req.body?.color ?? "",
+      description: req.body?.description ?? "",
+    });
+    res.json(await updateStyle(idParam(req), input));
+  }));
 
-  app.delete("/api/styles/:id", async (req, res) => {
-    await db.delete(styles).where(eq(styles.id, parseInt(req.params.id)));
+  app.delete("/api/styles/:id", route(async (req, res) => {
+    await deleteStyle(idParam(req));
     res.json({ success: true });
-  });
+  }));
 
-  // Purchase Order Routes
-  app.get("/api/purchase-orders", async (req, res) => {
-    try {
-      const allPOs = await db.query.purchaseOrders.findMany({
-        orderBy: [desc(purchaseOrders.createdAt)],
-        with: {
-          items: {
-            with: {
-              style: true,
-            },
-          },
-        },
-      });
-      res.json(allPOs);
-    } catch (error) {
-      console.error('Error fetching purchase orders:', error);
-      res.status(500).json({ error: 'Failed to fetch purchase orders' });
-    }
-  });
+  // -------------------------------------------------------------------------
+  // Purchase orders
+  // -------------------------------------------------------------------------
 
-  // Check if PO number exists
-  app.get("/api/purchase-orders/check/:poNumber", async (req, res) => {
-    try {
-      console.log("Checking PO number:", req.params.poNumber);
-      const existingPO = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.poNumber, req.params.poNumber),
-      });
-      console.log("Existing PO check result:", !!existingPO);
-      res.json({ exists: !!existingPO });
-    } catch (error) {
-      console.error('Error checking PO number:', error);
-      res.status(500).json({ 
-        error: 'Failed to check PO number',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
+  app.get("/api/purchase-orders", route(async (req, res) => {
+    res.json(await listPurchaseOrders(archivedFilter(req.query.archived)));
+  }));
 
-  app.post("/api/purchase-orders", async (req, res) => {
-    try {
-      const { items, poNumber, terms, orderDate, ...poData } = req.body;
+  app.get("/api/purchase-orders/next-number", route(async (_req, res) => {
+    res.json({ poNumber: await suggestNextPoNumber(incrementPoNumber) });
+  }));
 
-      // Check for duplicate PO number
-      const existingPO = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.poNumber, poNumber),
-      });
+  app.get("/api/purchase-orders/check/:poNumber", route(async (req, res) => {
+    const excludeId = req.query.excludeId ? Number(req.query.excludeId) : undefined;
+    res.json({ exists: await poNumberExists(req.params.poNumber, excludeId) });
+  }));
 
-      if (existingPO) {
-        return res.status(400).json({ 
-          error: 'Duplicate PO number',
-          message: 'This PO number already exists. Please use a different number.'
-        });
-      }
+  app.get("/api/purchase-orders/:id", route(async (req, res) => {
+    const po = await getPurchaseOrder(idParam(req));
+    if (!po) throw new HttpError(404, "Purchase order not found");
+    res.json(po);
+  }));
 
-      // Convert string dates to Date objects
-      const processedPoData = {
-        poNumber,
-        terms,
-        ...poData,
-        orderDate: new Date(orderDate),
-        startShipDate: new Date(poData.startShipDate),
-        cancelDate: new Date(poData.cancelDate),
-        dueDate: poData.dueDate ? new Date(poData.dueDate) : new Date(poData.cancelDate),
-      };
+  app.get("/api/purchase-orders/:id/revisions", route(async (req, res) => {
+    res.json(await listRevisions(idParam(req)));
+  }));
 
-      const newPO = await db.transaction(async (tx) => {
-        const [po] = await tx.insert(purchaseOrders).values(processedPoData).returning();
+  app.post("/api/purchase-orders", route(async (req, res) => {
+    res.status(201).json(await createPurchaseOrder(parsePoWrite(req.body)));
+  }));
 
-        // Process items, handling both existing styles and manual entries
-        const poItemsData = items.map((item: any) => ({
-          poId: po.id,
-          styleId: item.styleId === 0 ? null : item.styleId,
-          manualStyleNumber: item.manualStyleNumber,
-          color: item.color,
-          description: item.description,
-          quantity: item.quantity,
-          price: item.price
-        }));
+  app.put("/api/purchase-orders/:id", route(async (req, res) => {
+    const id = idParam(req);
+    const current = await getPurchaseOrder(id);
+    if (!current) throw new HttpError(404, "Purchase order not found");
+    res.json(await updatePurchaseOrder(id, parsePoWrite(req.body, current)));
+  }));
 
-        await tx.insert(poItems).values(poItemsData);
-        return po;
-      });
+  app.patch("/api/purchase-orders/:id/status", route(async (req, res) => {
+    const { status } = z.object({ status: z.enum(PO_STATUSES) }).parse(req.body);
+    res.json(await setPurchaseOrderStatus(idParam(req), status));
+  }));
 
-      res.json(newPO);
-    } catch (error) {
-      console.error('Error creating purchase order:', error);
-      res.status(500).json({ error: 'Failed to create purchase order' });
-    }
-  });
+  app.post("/api/purchase-orders/:id/archive", route(async (req, res) => {
+    res.json(await setArchived(idParam(req), true));
+  }));
 
-  app.put("/api/purchase-orders/:id", async (req, res) => {
-    try {
-      const { items, poNumber, terms, orderDate, startShipDate, cancelDate, shipTo, billTo, poType, specialInstructions } = req.body;
-      const poId = parseInt(req.params.id);
+  app.post("/api/purchase-orders/:id/restore", route(async (req, res) => {
+    res.json(await setArchived(idParam(req), false));
+  }));
 
-      // Explicitly define update fields
-      const poUpdate: any = {
-        poNumber: poNumber,
-        terms: terms,
-        poType: poType,
-        shipTo: shipTo,
-        billTo: billTo,
-        orderDate: new Date(orderDate),
-        startShipDate: new Date(startShipDate),
-        cancelDate: new Date(cancelDate),
-        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : new Date(cancelDate),
-      };
+  // Permanent delete — only allowed for archived POs; a recoverable snapshot is kept.
+  app.delete("/api/purchase-orders/:id", route(async (req, res) => {
+    await deletePurchaseOrder(idParam(req));
+    res.json({ success: true });
+  }));
 
-      const updatedPO = await db.transaction(async (tx) => {
-        // Delete existing items first
-        await tx
-          .delete(poItems)
-          .where(eq(poItems.poId, poId));
+  app.get("/api/deleted-purchase-orders", route(async (_req, res) => {
+    res.json(await listDeletedPurchaseOrders());
+  }));
 
-        // Then update the PO
-        const [po] = await tx
-          .update(purchaseOrders)
-          .set(poUpdate)
-          .where(eq(purchaseOrders.id, poId))
-          .returning();
+  app.post("/api/deleted-purchase-orders/:id/recover", route(async (req, res) => {
+    res.json(await recoverDeletedPurchaseOrder(idParam(req)));
+  }));
 
-        if (!po) {
-          throw new Error("Purchase order not found");
-        }
+  // -------------------------------------------------------------------------
+  // Addresses, settings, backup
+  // -------------------------------------------------------------------------
 
-        // Insert new items
-        const poItemsData = items.map((item: any) => ({
-          poId: po.id,
-          styleId: item.styleId === 0 ? null : item.styleId,
-          manualStyleNumber: item.manualStyleNumber || '',
-          color: item.color || '',
-          description: item.description || '',
-          quantity: item.quantity,
-          price: item.price
-        }));
+  app.get("/api/addresses", route(async (_req, res) => {
+    res.json(await listAddresses());
+  }));
 
-        await tx.insert(poItems).values(poItemsData);
-        return po;
-      });
+  app.get("/api/settings", route(async (_req, res) => {
+    res.json(await getSettings());
+  }));
 
-      // Fetch the updated PO with its items
-      const updatedPOWithItems = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, poId),
-        with: {
-          items: {
-            with: {
-              style: true,
-            },
-          },
-        },
-      });
+  app.put("/api/settings", route(async (req, res) => {
+    res.json(await saveSettings(SettingsSchema.parse(req.body)));
+  }));
 
-      if (!updatedPOWithItems) {
-        throw new Error("Failed to fetch updated purchase order");
-      }
+  app.get("/api/backup", route(async (_req, res) => {
+    const backup = await exportBackup();
+    const stamp = backup.exportedAt.slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename="po-master-backup-${stamp}.json"`);
+    res.setHeader("Content-Type", "application/json");
+    res.send(JSON.stringify(backup, null, 2));
+  }));
 
-      // Format the response to match the POFormValues type
-      const formattedPO = {
-        ...updatedPOWithItems,
-        items: updatedPOWithItems.items.map(item => ({
-          styleId: item.styleId || 0,
-          manualStyleNumber: item.manualStyleNumber || '',
-          color: item.color || '',
-          description: item.description || '',
-          quantity: item.quantity,
-          price: item.price,
-        }))
-      };
-
-      res.json(formattedPO);
-    } catch (error) {
-      console.error('Error updating purchase order:', error);
-      res.status(500).json({ 
-        error: 'Failed to update purchase order',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  app.get("/api/purchase-orders/:id", async (req, res) => {
-    try {
-      const po = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, parseInt(req.params.id)),
-        with: {
-          items: {
-            with: {
-              style: true,
-            },
-          },
-        },
-      });
-
-      if (!po) {
-        return res.status(404).json({ message: "Purchase order not found" });
-      }
-
-      // Format the response to match the POFormValues type
-      const formattedPO = {
-        ...po,
-        items: po.items.map(item => ({
-          styleId: item.styleId || 0,
-          manualStyleNumber: item.manualStyleNumber || '',
-          color: item.color || '',
-          description: item.description || '',
-          quantity: item.quantity,
-          price: item.price,
-        }))
-      };
-
-      res.json(formattedPO);
-    } catch (error) {
-      console.error('Error fetching purchase order:', error);
-      res.status(500).json({ 
-        message: "Failed to fetch purchase order",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  app.delete("/api/purchase-orders/:id", async (req, res) => {
-    try {
-      await db.transaction(async (tx) => {
-        // Delete PO items first
-        await tx.delete(poItems)
-          .where(eq(poItems.poId, parseInt(req.params.id)));
-
-        // Then delete the PO
-        await tx.delete(purchaseOrders)
-          .where(eq(purchaseOrders.id, parseInt(req.params.id)));
-      });
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error deleting purchase order:', error);
-      res.status(500).json({ 
-        error: 'Failed to delete purchase order',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+  app.all("/api/*", (_req, res) => {
+    res.status(404).json({ error: "Not found", message: "Not found" });
   });
 
   return httpServer;

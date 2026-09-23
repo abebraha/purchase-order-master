@@ -2,10 +2,12 @@ import express, { type Request, Response, NextFunction } from "express";
 import compression from "compression";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { ready } from "@db";
+import { ensureBaselineRevisions } from "./storage";
 
 const app = express();
 app.use(compression());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
@@ -39,14 +41,20 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Make sure the schema is migrated (additively) and every existing PO has a history
+  // snapshot before serving any request.
+  await ready;
+  const baselined = await ensureBaselineRevisions();
+  if (baselined > 0) log(`saved ${baselined} existing purchase order(s) to history`);
+
   const server = registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    console.error(err);
+    if (!res.headersSent) res.status(status).json({ message });
   });
 
   // importantly only setup vite in development and after

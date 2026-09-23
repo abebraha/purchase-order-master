@@ -2,12 +2,258 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Design tokens — modeled on Apple's system colors (iOS/macOS).
+  Light: grouped gray background (#F2F2F7) with white cards. Dark: true black with #1C1C1E cards.
+  (Previously these were injected by a Replit-only Vite plugin that is no longer installed,
+  which left every theme color undefined in production.)
+*/
 @layer base {
+  :root {
+    --background: 240 24% 96%;          /* systemGroupedBackground #F2F2F7 */
+    --foreground: 240 3% 11%;           /* #1C1C1E */
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 3% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 3% 11%;
+
+    --primary: 211 100% 50%;            /* systemBlue #007AFF */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 6% 92%;            /* gray button fill */
+    --secondary-foreground: 240 3% 11%;
+
+    --muted: 240 11% 96%;               /* filled input background */
+    --muted-foreground: 240 3% 44%;     /* secondary label (AA on white) */
+
+    --accent: 240 6% 94%;               /* hover / pressed row */
+    --accent-foreground: 240 3% 11%;
+
+    --destructive: 3 100% 59%;          /* systemRed #FF3B30 */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 135 59% 49%;             /* systemGreen #34C759 */
+    --success-foreground: 0 0% 100%;
+    --warning: 35 100% 50%;             /* systemOrange #FF9500 */
+    --warning-foreground: 0 0% 100%;
+
+    --border: 240 6% 88%;               /* separators */
+    --input: 240 6% 89%;
+    --ring: 211 100% 50%;
+
+    --radius: 0.75rem;
+
+    /* Apple system palette (use via bg-ios-blue, text-ios-green, bg-ios-orange/15 …) */
+    --ios-blue: 211 100% 50%;
+    --ios-green: 135 59% 49%;
+    --ios-indigo: 241 61% 59%;
+    --ios-orange: 35 100% 50%;
+    --ios-pink: 349 100% 59%;
+    --ios-purple: 280 68% 60%;
+    --ios-red: 3 100% 59%;
+    --ios-teal: 189 61% 48%;
+    --ios-yellow: 48 100% 50%;
+    --ios-gray: 240 2% 57%;
+
+    /* Charts */
+    --chart-1: 211 100% 50%;
+    --chart-2: 189 61% 48%;
+    --chart-3: 135 59% 45%;
+    --chart-4: 35 100% 50%;
+    --chart-5: 280 68% 60%;
+
+    --sidebar-background: 240 11% 97%;
+    --sidebar-foreground: 240 3% 11%;
+    --sidebar-primary: 211 100% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 6% 91%;
+    --sidebar-accent-foreground: 240 3% 11%;
+    --sidebar-border: 240 6% 88%;
+    --sidebar-ring: 211 100% 50%;
+
+    /* iOS tab bar height (49pt) — content pads for it on phones */
+    --mobile-nav-height: 3.0625rem;
+  }
+
+  .dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 3% 11%;                 /* secondarySystemGroupedBackground #1C1C1E */
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 3% 14%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 210 100% 52%;            /* systemBlue (dark) #0A84FF */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 2% 22%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 3% 16%;
+    --muted-foreground: 240 3% 64%;
+
+    --accent: 240 2% 20%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 3 100% 61%;          /* #FF453A */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 135 64% 50%;             /* #30D158 */
+    --success-foreground: 135 60% 8%;
+    --warning: 36 100% 52%;             /* #FF9F0A */
+    --warning-foreground: 34 80% 10%;
+
+    --border: 240 3% 20%;
+    --input: 240 3% 24%;
+    --ring: 210 100% 52%;
+
+    --ios-blue: 210 100% 52%;
+    --ios-green: 135 64% 50%;
+    --ios-indigo: 241 73% 63%;
+    --ios-orange: 36 100% 52%;
+    --ios-pink: 349 100% 61%;
+    --ios-purple: 280 85% 65%;
+    --ios-red: 3 100% 61%;
+    --ios-teal: 189 72% 56%;
+    --ios-yellow: 50 100% 52%;
+    --ios-gray: 240 2% 57%;
+
+    --chart-1: 210 100% 60%;
+    --chart-2: 189 72% 56%;
+    --chart-3: 135 64% 50%;
+    --chart-4: 36 100% 52%;
+    --chart-5: 280 85% 65%;
+
+    --sidebar-background: 240 3% 9%;
+    --sidebar-foreground: 0 0% 92%;
+    --sidebar-primary: 210 100% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 2% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 3% 16%;
+    --sidebar-ring: 210 100% 52%;
+  }
+
   * {
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    letter-spacing: -0.01em;
+    overscroll-behavior-y: none;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.2);
+  }
+
+  /* Native date inputs: same height/feel as text inputs on iOS */
+  input[type="date"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  /* Hide number spinners; quantities and prices are typed */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Space for the fixed mobile tab bar (plus the iPhone home indicator) */
+  .pb-mobile-nav {
+    padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 2rem);
+  }
+  .bottom-mobile-nav {
+    bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  /* Translucent "material" used by bars (nav bar, tab bar, toolbars) */
+  .material-bar {
+    background-color: hsl(var(--background) / 0.78);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+  .material-card {
+    background-color: hsl(var(--card) / 0.8);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+  /* Apple-style large title */
+  .text-large-title {
+    font-size: 2.125rem; /* 34px */
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.022em;
+  }
+  .text-title-1 {
+    font-size: 1.75rem; /* 28px */
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .text-title-2 {
+    font-size: 1.375rem; /* 22px */
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+  }
+  .text-title-3 {
+    font-size: 1.25rem; /* 20px */
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -0.016em;
+  }
+  /* Hairline (0.5px on retina) */
+  .hairline-b {
+    box-shadow: inset 0 -0.5px 0 hsl(var(--border));
+  }
+  .hairline-t {
+    box-shadow: inset 0 0.5px 0 hsl(var(--border));
+  }
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
   }
 }

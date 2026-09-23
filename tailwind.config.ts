@@ -1,10 +1,15 @@
 import type { Config } from "tailwindcss";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 export default {
   darkMode: ["class"],
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        // Apple devices render SF Pro via -apple-system; everyone else gets Inter (loaded in index.html).
+        sans: ["-apple-system", "BlinkMacSystemFont", '"SF Pro Text"', "Inter", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", ...defaultTheme.fontFamily.sans],
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -40,6 +45,26 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        ios: {
+          blue: "hsl(var(--ios-blue))",
+          green: "hsl(var(--ios-green))",
+          indigo: "hsl(var(--ios-indigo))",
+          orange: "hsl(var(--ios-orange))",
+          pink: "hsl(var(--ios-pink))",
+          purple: "hsl(var(--ios-purple))",
+          red: "hsl(var(--ios-red))",
+          teal: "hsl(var(--ios-teal))",
+          yellow: "hsl(var(--ios-yellow))",
+          gray: "hsl(var(--ios-gray))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

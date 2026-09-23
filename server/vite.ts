@@ -40,8 +40,8 @@ export async function setupVite(app: Express, server: Server) {
           log(`${summary} ${errors}\u001b[0m`, "tsc");
           return;
         } else {
+          // Log and keep serving; a transient syntax error shouldn't take the dev server down.
           viteLogger.error(msg, options);
-          process.exit(1);
         }
       },
     },
