@@ -393,7 +393,7 @@ export async function listDeletedPurchaseOrders(): Promise<DeletedPurchaseOrder[
     .where(
       and(
         eq(poRevisions.action, "deleted"),
-        sql`NOT EXISTS (SELECT 1 FROM ${purchaseOrders} WHERE ${purchaseOrders.id} = ${poRevisions.poId})`,
+        sql`NOT EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = "po_revisions"."po_id")`,
       ),
     )
     .orderBy(desc(poRevisions.createdAt), desc(poRevisions.id));
@@ -473,7 +473,7 @@ export async function ensureBaselineRevisions(): Promise<number> {
   const missing = await db
     .select({ id: purchaseOrders.id })
     .from(purchaseOrders)
-    .where(sql`NOT EXISTS (SELECT 1 FROM ${poRevisions} WHERE ${poRevisions.poId} = ${purchaseOrders.id})`);
+    .where(sql`NOT EXISTS (SELECT 1 FROM po_revisions r WHERE r.po_id = "purchase_orders"."id")`);
   let count = 0;
   for (const { id } of missing) {
     const po = await getPurchaseOrder(id);
@@ -550,10 +550,11 @@ export async function listStyles(): Promise<StyleRecord[]> {
       description: styles.description,
       createdAt: styles.createdAt,
       updatedAt: styles.updatedAt,
+      // Explicit aliases: drizzle leaves columns unqualified here, which would bind to po_items.
       usageCount: sql<number>`(
-        SELECT count(*)::int FROM ${poItems}
-        WHERE ${poItems.styleId} = ${styles.id}
-           OR lower(trim(coalesce(${poItems.manualStyleNumber}, ''))) = lower(${styles.styleNumber})
+        SELECT count(*)::int FROM po_items pi
+        WHERE pi.style_id = "styles"."id"
+           OR lower(trim(coalesce(pi.manual_style_number, ''))) = lower("styles"."style_number")
       )`,
     })
     .from(styles)
