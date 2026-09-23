@@ -26,6 +26,7 @@ import {
   listDeletedPurchaseOrders,
   listPurchaseOrders,
   listRevisions,
+  listStyleSuggestions,
   listStyles,
   poNumberExists,
   recoverDeletedPurchaseOrder,
@@ -190,6 +191,11 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/styles", route(async (_req, res) => {
     res.json(await listStyles());
+  }));
+
+  // Style numbers typed on POs that aren't in the catalog yet (read-only; add them via /bulk).
+  app.get("/api/styles/suggestions", route(async (_req, res) => {
+    res.json(await listStyleSuggestions());
   }));
 
   app.post("/api/styles", route(async (req, res) => {

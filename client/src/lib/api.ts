@@ -11,6 +11,7 @@ import type {
   StyleFormValues,
   StyleImportResult,
   StyleRecord,
+  StyleSuggestion,
 } from "@shared/po";
 
 export { ApiError };
@@ -55,6 +56,8 @@ export const keys = {
   nextNumber: () => ["/api/purchase-orders/next-number"] as const,
   deleted: () => ["/api/deleted-purchase-orders"] as const,
   styles: () => ["/api/styles"] as const,
+  /** Refreshed with the catalog: every "/api/styles" invalidation matches this key by prefix. */
+  styleSuggestions: () => ["/api/styles/suggestions"] as const,
   addresses: () => ["/api/addresses"] as const,
   settings: () => ["/api/settings"] as const,
 };
@@ -75,7 +78,7 @@ export function invalidatePurchaseOrders(client: QueryClient = queryClient) {
     "/api/purchase-orders",
     "/api/deleted-purchase-orders",
     "/api/addresses",
-    "/api/styles", // style usage counts
+    "/api/styles", // style usage counts and suggestions (style numbers typed on POs)
   );
 }
 
@@ -109,6 +112,11 @@ export function useDeletedPurchaseOrders() {
 
 export function useStyles() {
   return useQuery<StyleRecord[]>({ queryKey: keys.styles() });
+}
+
+/** Style numbers used on purchase orders that aren't in the catalog yet, most ordered first. */
+export function useStyleSuggestions() {
+  return useQuery<StyleSuggestion[]>({ queryKey: keys.styleSuggestions() });
 }
 
 export function useAddresses() {

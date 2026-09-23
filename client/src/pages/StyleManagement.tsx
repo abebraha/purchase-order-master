@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Ellipsis, FileSpreadsheet, FileUp, Plus, SearchX, Share, Tags } from "lucide-react";
+import { ClipboardList, Ellipsis, FileSpreadsheet, FileUp, Plus, SearchX, Share, Tags } from "lucide-react";
 import type { StyleRecord } from "@shared/po";
 import { PageContainer, PageHeader } from "@/components/layout/AppShell";
 import { ListRow, ListSection, SearchField } from "@/components/kit";
@@ -13,15 +13,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteStyleDialog } from "@/components/styles/DeleteStyleDialog";
-import { ImportStylesDialog } from "@/components/styles/ImportStylesDialog";
+import { ImportStylesDialog, type ImportMode } from "@/components/styles/ImportStylesDialog";
 import { SortMenu } from "@/components/styles/SortMenu";
 import { StyleFormDialog } from "@/components/styles/StyleFormDialog";
 import { StyleList } from "@/components/styles/StyleList";
 import { StyleTable } from "@/components/styles/StyleTable";
+import { SuggestionsBanner } from "@/components/styles/SuggestionsBanner";
 import { filterStyles, sortStyles, type StyleSort } from "@/components/styles/styleUtils";
 import { useToast } from "@/hooks/use-toast";
 import { useIsDesktop } from "@/hooks/use-media-query";
-import { useStyles } from "@/lib/api";
+import { useStyleSuggestions, useStyles } from "@/lib/api";
 import { exportStylesCsv } from "@/lib/export";
 import { formatNumber, pluralize } from "@/lib/format";
 
@@ -39,6 +40,8 @@ function readSort(): StyleSort {
 
 export default function StyleManagement() {
   const { data: styles, isLoading, error, refetch, isRefetching } = useStyles();
+  // Style numbers typed on purchase orders that were never saved to the library.
+  const { data: suggestions = [] } = useStyleSuggestions();
   const isDesktop = useIsDesktop();
   const { toast } = useToast();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -52,6 +55,7 @@ export default function StyleManagement() {
   const [prefill, setPrefill] = useState("");
   const [deleting, setDeleting] = useState<StyleRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>("file");
 
   const setSort = (next: StyleSort) => {
     setSortState(next);
@@ -95,6 +99,10 @@ export default function StyleManagement() {
     setPrefill("");
     setFormOpen(true);
   };
+  const openImport = (mode: ImportMode = "file") => {
+    setImportMode(mode);
+    setImportOpen(true);
+  };
   const requestDelete = (style: StyleRecord) => {
     setFormOpen(false);
     setDeleting(style);
@@ -124,7 +132,7 @@ export default function StyleManagement() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+            <DropdownMenuItem onSelect={() => openImport()}>
               <FileUp />
               Import Styles
             </DropdownMenuItem>
@@ -141,7 +149,7 @@ export default function StyleManagement() {
 
       {/* Tablet and desktop: labeled buttons */}
       <div className="hidden items-center gap-2 md:flex">
-        <Button variant="tinted" size="sm" onClick={() => setImportOpen(true)}>
+        <Button variant="tinted" size="sm" onClick={() => openImport()}>
           <FileUp strokeWidth={2.25} />
           Import
         </Button>
@@ -173,18 +181,29 @@ export default function StyleManagement() {
       />
     );
   } else if (!hasStyles) {
+    const fromOrders = suggestions.length;
     body = (
       <EmptyState
         icon={Tags}
         title="No styles yet"
-        description="Add the styles you order most, and you can pick them in seconds when you fill in a purchase order."
+        description={
+          fromOrders > 0
+            ? `${pluralize(fromOrders, "style")} from your purchase orders can be added in one step. Then you can pick them in seconds on your next order.`
+            : "Add the styles you order most, and you can pick them in seconds when you fill in a purchase order."
+        }
         action={
           <>
-            <Button onClick={() => openAdd()}>
+            {fromOrders > 0 && (
+              <Button onClick={() => openImport("orders")} className="w-full sm:w-auto">
+                <ClipboardList />
+                Add Styles from Orders
+              </Button>
+            )}
+            <Button variant={fromOrders > 0 ? "tinted" : "default"} onClick={() => openAdd()}>
               <Plus strokeWidth={2.5} />
               Add Style
             </Button>
-            <Button variant="tinted" onClick={() => setImportOpen(true)}>
+            <Button variant="tinted" onClick={() => openImport()}>
               <FileUp />
               Import Styles
             </Button>
@@ -199,6 +218,8 @@ export default function StyleManagement() {
 
     body = (
       <div className="space-y-5">
+        <SuggestionsBanner suggestions={suggestions} onReview={() => openImport("orders")} />
+
         <div className="flex items-center gap-2">
           <SearchField
             ref={searchRef}
@@ -299,7 +320,7 @@ export default function StyleManagement() {
       <PageHeader
         title="Styles"
         subtitle={
-          styles ? (total ? `${pluralize(total, "style")} in your catalog` : "Your catalog is empty") : "\u00a0"
+          styles ? (total ? `${pluralize(total, "style")} in your library` : "Your library is empty") : "\u00a0"
         }
         actions={headerActions}
       />
@@ -314,7 +335,7 @@ export default function StyleManagement() {
         onDelete={requestDelete}
       />
       <DeleteStyleDialog style={deleting} onOpenChange={(open) => !open && setDeleting(null)} />
-      <ImportStylesDialog open={importOpen} onOpenChange={setImportOpen} styles={styles} />
+      <ImportStylesDialog open={importOpen} onOpenChange={setImportOpen} styles={styles} initialMode={importMode} />
     </>
   );
 }

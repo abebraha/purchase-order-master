@@ -27,6 +27,7 @@ import {
   type PurchaseOrder,
   type RevisionAction,
   type StyleRecord,
+  type StyleSuggestion,
 } from "../shared/po";
 
 /** Encode a value as a real JSONB object (drizzle 0.29 + postgres-js would otherwise store a JSON string). */
@@ -840,6 +841,129 @@ export async function bulkCreateStyles(
     created += inserted.length;
   }
   return { created, skipped: records.length - created };
+}
+
+/**
+ * Counts text case-insensitively ("Black" and "BLACK" are one color) and remembers each
+ * group's most common spelling. Ties go to the most recently ordered.
+ */
+type Usage = { count: number; last: number };
+const byUse = (a: Usage, b: Usage) => b.count - a.count || b.last - a.last;
+
+class TextTally {
+  private groups = new Map<string, Usage & { spellings: Map<string, Usage> }>();
+
+  add(text: string | null | undefined, time: number) {
+    const value = (text ?? "").trim();
+    if (!value) return;
+    const key = value.toLowerCase();
+    let group = this.groups.get(key);
+    if (!group) {
+      group = { count: 0, last: time, spellings: new Map() };
+      this.groups.set(key, group);
+    }
+    group.count++;
+    group.last = Math.max(group.last, time);
+    const spelling = group.spellings.get(value) ?? { count: 0, last: time };
+    spelling.count++;
+    spelling.last = Math.max(spelling.last, time);
+    group.spellings.set(value, spelling);
+  }
+
+  /** Every distinct value (its most common spelling), most used first. */
+  values(): string[] {
+    return Array.from(this.groups.values())
+      .sort(byUse)
+      .map((g) => Array.from(g.spellings.entries()).sort((a, b) => byUse(a[1], b[1]))[0][0]);
+  }
+
+  /** The most common value, or "" when nothing was added. */
+  top(): string {
+    return this.values()[0] ?? "";
+  }
+}
+
+/**
+ * Style numbers typed on PO lines that aren't in the styles catalog (older versions of the app
+ * never saved them there). Covers every saved PO, archived ones included — permanently deleted
+ * POs are gone from these tables. Matching is trimmed and case-insensitive, like the catalog.
+ * Lines linked to a style that still exists are skipped: that style is in the catalog, even if it
+ * was renamed after the order was placed.
+ *
+ * Read-only: purchase orders and their lines are never modified here.
+ */
+export async function listStyleSuggestions(): Promise<StyleSuggestion[]> {
+  const [lines, catalog] = await Promise.all([
+    db
+      .select({
+        poId: poItems.poId,
+        manualStyleNumber: poItems.manualStyleNumber,
+        color: poItems.color,
+        description: poItems.description,
+        quantity: poItems.quantity,
+        status: purchaseOrders.status,
+        orderDate: purchaseOrders.orderDate,
+      })
+      .from(poItems)
+      .innerJoin(purchaseOrders, eq(poItems.poId, purchaseOrders.id))
+      .leftJoin(styles, eq(poItems.styleId, styles.id))
+      .where(and(isNull(styles.id), sql`coalesce(trim(${poItems.manualStyleNumber}), '') <> ''`))
+      .orderBy(asc(poItems.id)),
+    db.select({ styleNumber: styles.styleNumber }).from(styles),
+  ]);
+  const inCatalog = new Set(catalog.map((s) => s.styleNumber.trim().toLowerCase()));
+
+  const found = new Map<
+    string,
+    { numbers: TextTally; colors: TextTally; descriptions: TextTally; lines: number; orders: Set<number>; units: number; last: number }
+  >();
+  for (const line of lines) {
+    const styleNumber = (line.manualStyleNumber ?? "").trim();
+    const key = styleNumber.toLowerCase();
+    if (!styleNumber || line.poId === null || inCatalog.has(key)) continue;
+    const time = line.orderDate ? new Date(line.orderDate).getTime() || 0 : 0;
+    let entry = found.get(key);
+    if (!entry) {
+      entry = {
+        numbers: new TextTally(),
+        colors: new TextTally(),
+        descriptions: new TextTally(),
+        lines: 0,
+        orders: new Set(),
+        units: 0,
+        last: time,
+      };
+      found.set(key, entry);
+    }
+    entry.numbers.add(styleNumber, time);
+    entry.colors.add(line.color, time);
+    entry.descriptions.add(line.description, time);
+    entry.lines++;
+    entry.orders.add(line.poId);
+    if (normalizeStatus(line.status) !== "cancelled") entry.units += Number(line.quantity) || 0;
+    entry.last = Math.max(entry.last, time);
+  }
+
+  return Array.from(found.values())
+    .map((e) => {
+      const colors = e.colors.values();
+      return {
+        styleNumber: e.numbers.top(),
+        color: colors[0] ?? "",
+        description: e.descriptions.top(),
+        colors,
+        lines: e.lines,
+        orders: e.orders.size,
+        units: e.units,
+        lastOrdered: toISO(new Date(e.last))!,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.units - a.units ||
+        b.lastOrdered.localeCompare(a.lastOrdered) ||
+        a.styleNumber.localeCompare(b.styleNumber, "en", { numeric: true }),
+    );
 }
 
 // ---------------------------------------------------------------------------

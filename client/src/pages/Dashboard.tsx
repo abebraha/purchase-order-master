@@ -179,9 +179,7 @@ export default function Dashboard() {
               </Section>
             </div>
 
-            <Section title="Top Styles" action={<SectionLink href="/styles">See All</SectionLink>}>
-              <TopStyles styles={summary.topStyles} />
-            </Section>
+            <TopStyles styles={summary.topStyles} />
           </div>
         )}
       </PageContainer>
