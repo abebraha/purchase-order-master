@@ -14,6 +14,7 @@ import {
   PO_STATUSES,
   PO_STATUS_LABELS,
   REVISION_ACTION_LABELS,
+  STYLE_NUMBER_MAX_LENGTH,
   SettingsSchema,
   computeTotals,
   describeChanges,
@@ -719,26 +720,40 @@ export async function exportBackup() {
 // ---------------------------------------------------------------------------
 
 export async function listStyles(): Promise<StyleRecord[]> {
-  const rows = await db
-    .select({
-      id: styles.id,
-      styleNumber: styles.styleNumber,
-      color: styles.color,
-      description: styles.description,
-      createdAt: styles.createdAt,
-      updatedAt: styles.updatedAt,
-      // Explicit aliases: drizzle leaves columns unqualified here, which would bind to po_items.
-      usageCount: sql<number>`(
-        SELECT count(*)::int FROM po_items pi
-        WHERE pi.style_id = "styles"."id"
-           OR lower(trim(coalesce(pi.manual_style_number, ''))) = lower("styles"."style_number")
-      )`,
-    })
-    .from(styles)
-    .orderBy(asc(styles.styleNumber));
+  const [rows, usage] = await Promise.all([
+    db
+      .select({
+        id: styles.id,
+        styleNumber: styles.styleNumber,
+        color: styles.color,
+        description: styles.description,
+        createdAt: styles.createdAt,
+        updatedAt: styles.updatedAt,
+      })
+      .from(styles)
+      .orderBy(asc(styles.styleNumber)),
+    // PO lines per style, by link or by typed style number (a line matching both counts once).
+    // Two hash joins, not a subquery per style: that re-scanned every line for every style and
+    // took many seconds once a catalog had a few thousand styles.
+    db.execute(sql`
+      SELECT style_id, count(*)::int AS uses FROM (
+        SELECT s.id AS style_id, pi.id AS item_id
+          FROM styles s JOIN po_items pi ON pi.style_id = s.id
+        UNION
+        SELECT s.id, pi.id
+          FROM styles s JOIN po_items pi
+            ON lower(trim(coalesce(pi.manual_style_number, ''))) = lower(s.style_number)
+      ) matches
+      GROUP BY style_id
+    `),
+  ]);
+  const usesById = new Map<number, number>();
+  for (const row of usage as unknown as Array<{ style_id: number; uses: number }>) {
+    usesById.set(Number(row.style_id), Number(row.uses) || 0);
+  }
   return rows.map((r) => ({
     ...r,
-    usageCount: Number(r.usageCount) || 0,
+    usageCount: usesById.get(r.id) ?? 0,
     createdAt: toISO(r.createdAt)!,
     updatedAt: toISO(r.updatedAt)!,
   }));
@@ -811,10 +826,16 @@ export async function deleteStyle(id: number) {
   });
 }
 
+/**
+ * Adds many styles at once, skipping blanks, repeats and styles already in the catalog (ignoring
+ * case). Style numbers longer than a single style may have are left out too (counted in `tooLong`,
+ * which is part of `skipped`), so every entry can still be edited afterwards.
+ */
 export async function bulkCreateStyles(
   records: Array<{ styleNumber: string; color: string; description: string }>,
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ created: number; skipped: number; tooLong: number }> {
   const seen = new Set<string>();
+  let tooLong = 0;
   const unique = records
     .map((r) => ({
       styleNumber: r.styleNumber.trim(),
@@ -825,6 +846,10 @@ export async function bulkCreateStyles(
       const k = r.styleNumber.toLowerCase();
       if (!r.styleNumber || seen.has(k)) return false;
       seen.add(k);
+      if (r.styleNumber.length > STYLE_NUMBER_MAX_LENGTH) {
+        tooLong++;
+        return false;
+      }
       return true;
     });
   const existing = await db.select({ styleNumber: styles.styleNumber }).from(styles);
@@ -840,7 +865,7 @@ export async function bulkCreateStyles(
       .returning({ id: styles.id });
     created += inserted.length;
   }
-  return { created, skipped: records.length - created };
+  return { created, skipped: records.length - created, tooLong };
 }
 
 /**
@@ -888,7 +913,8 @@ class TextTally {
  * never saved them there). Covers every saved PO, archived ones included — permanently deleted
  * POs are gone from these tables. Matching is trimmed and case-insensitive, like the catalog.
  * Lines linked to a style that still exists are skipped: that style is in the catalog, even if it
- * was renamed after the order was placed.
+ * was renamed after the order was placed. So are style numbers too long for the catalog to hold
+ * (someone typed a description into the style # field): they couldn't be saved or edited there.
  *
  * Read-only: purchase orders and their lines are never modified here.
  */
@@ -920,7 +946,9 @@ export async function listStyleSuggestions(): Promise<StyleSuggestion[]> {
   for (const line of lines) {
     const styleNumber = (line.manualStyleNumber ?? "").trim();
     const key = styleNumber.toLowerCase();
-    if (!styleNumber || line.poId === null || inCatalog.has(key)) continue;
+    if (!styleNumber || styleNumber.length > STYLE_NUMBER_MAX_LENGTH || line.poId === null || inCatalog.has(key)) {
+      continue;
+    }
     const time = line.orderDate ? new Date(line.orderDate).getTime() || 0 : 0;
     let entry = found.get(key);
     if (!entry) {

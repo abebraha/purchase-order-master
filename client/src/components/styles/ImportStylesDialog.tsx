@@ -171,7 +171,19 @@ export function ImportStylesDialog({
   const fromOrders = suggestions.data ?? [];
   const chosen = fromOrders.filter((s) => !unticked.has(styleKey(s.styleNumber)));
 
+  // `pending` only disables the button on a later render, so a quick double tap could import twice.
+  const submitting = useRef(false);
   const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
+    try {
+      await save();
+    } finally {
+      submitting.current = false;
+    }
+  };
+
+  const save = async () => {
     if (mode === "orders") {
       if (chosen.length === 0) return;
       if (await addToLibrary.add(chosen.map((s) => suggestionToStyle(s)))) onOpenChange(false);
@@ -216,6 +228,8 @@ export function ImportStylesDialog({
         : newCount > 0
           ? `Import ${pluralize(newCount, "New Style", "New Styles")}`
           : "Nothing New to Import";
+  // "From Orders" with nothing to add (all set, or the orders couldn't be read): no dead primary.
+  const ordersSettled = mode === "orders" && fromOrders.length === 0 && (Boolean(suggestions.data) || Boolean(suggestions.error));
 
   return (
     <ResponsiveDialog
@@ -235,16 +249,19 @@ export function ImportStylesDialog({
             onClick={() => onOpenChange(false)}
             className="order-last md:order-none"
           >
-            Cancel
+            {ordersSettled && suggestions.data ? "Done" : "Cancel"}
           </Button>
-          <Button type="button" onClick={submit} disabled={!canSubmit || pending}>
-            {pending && <Loader2 className="animate-spin" />}
-            {submitLabel}
-          </Button>
+          {!ordersSettled && (
+            <Button type="button" onClick={submit} disabled={!canSubmit || pending}>
+              {pending && <Loader2 className="animate-spin" />}
+              {submitLabel}
+            </Button>
+          )}
         </>
       }
     >
-      <div className="space-y-5 pt-1">
+      {/* min-w-0: a long row truncates instead of widening the dialog (it's a grid item). */}
+      <div className="min-w-0 space-y-5 pt-1">
         <SegmentedControl aria-label="Import method" value={mode} onChange={setMode} options={MODES} />
 
         {mode === "orders" ? (
@@ -519,7 +536,9 @@ function FromOrders({
         </button>
       }
       footer="Each style is saved with the color and description used most on your orders. Your purchase orders don't change."
-      className="[&>div.bg-card]:bg-muted"
+      // Desktop: the list scrolls on its own, so Select All/None and the Add button stay in view
+      // however many styles there are. (Phones scroll the sheet, whose buttons are pinned.)
+      className="[&>div.bg-card]:bg-muted md:[&>div.bg-card]:max-h-[min(26rem,45dvh)] md:[&>div.bg-card]:overflow-y-auto md:[&>div.bg-card]:overscroll-contain"
     >
       {suggestions.map((s, i) => {
         const key = keys[i];

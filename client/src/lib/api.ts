@@ -257,7 +257,16 @@ export function useBulkCreateStyles() {
   return useMutation({
     mutationFn: (styles: StyleFormValues[]) =>
       api<StyleImportResult>("POST", "/api/styles/bulk", { styles }),
-    onSuccess: () => invalidateStyles(),
+    // Resolve as soon as the styles are saved, so the confirmation isn't held up by the refetch
+    // (the catalog, suggestions and orders refresh behind it). Saved styles leave the
+    // suggestions right away: every one of them is in the catalog now.
+    onSuccess: (_result, styles) => {
+      const saved = new Set(styles.map((s) => s.styleNumber.trim().toLowerCase()));
+      queryClient.setQueryData<StyleSuggestion[]>(keys.styleSuggestions(), (list) =>
+        list?.filter((s) => !saved.has(s.styleNumber.trim().toLowerCase())),
+      );
+      void invalidateStyles();
+    },
   });
 }
 

@@ -16,7 +16,7 @@ import { StatusBreakdown } from "@/components/dashboard/StatusBreakdown";
 import { TopStyles } from "@/components/dashboard/TopStyles";
 import { Welcome } from "@/components/dashboard/Welcome";
 import { greeting, summarize } from "@/components/dashboard/metrics";
-import { usePurchaseOrders } from "@/lib/api";
+import { usePurchaseOrders, useStyleSuggestions, useStyles } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /** Re-render once a minute so the greeting and date stay current if Home is left open. */
@@ -95,6 +95,10 @@ function DashboardSkeleton() {
 export default function Dashboard() {
   const now = useNow();
   const { data: orders, isLoading, error, refetch, isRefetching } = usePurchaseOrders();
+  // Top Styles checks each style against the library: load it alongside the orders, not after,
+  // so its Add buttons are ready when the section appears.
+  useStyles();
+  useStyleSuggestions();
   const summary = useMemo(() => (orders ? summarize(orders, now) : null), [orders, now]);
   const isEmpty = !!orders && orders.length === 0;
   const toReview = useMemo(() => (orders ?? []).filter((po) => po.needsReview), [orders]);

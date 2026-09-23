@@ -7,6 +7,7 @@ import {
   DATE_INPUT_RE,
   PO_STATUSES,
   PO_TYPES,
+  STYLE_NUMBER_MAX_LENGTH,
   SettingsSchema,
   StyleFormSchema,
   incrementPoNumber,
@@ -182,6 +183,13 @@ function pickColumn(record: Record<string, string>, candidates: string[]): strin
   return key ? String(record[key] ?? "").trim() : "";
 }
 
+/** " 1 style number is longer than 64 characters and was left out." — "" when none were. */
+function tooLongNote(count: number): string {
+  if (!count) return "";
+  const one = count === 1;
+  return ` ${count} style number${one ? " is" : "s are"} longer than ${STYLE_NUMBER_MAX_LENGTH} characters and ${one ? "was" : "were"} left out.`;
+}
+
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
@@ -217,9 +225,10 @@ export function registerRoutes(app: Express): Server {
       .max(10000)
       .parse(req.body?.styles ?? []);
     const result = await bulkCreateStyles(records);
+    const duplicates = result.skipped - result.tooLong;
     res.json({
       ...result,
-      message: `Added ${result.created} style${result.created === 1 ? "" : "s"}${result.skipped ? `, skipped ${result.skipped} duplicate or blank` : ""}.`,
+      message: `Added ${result.created} style${result.created === 1 ? "" : "s"}${duplicates ? `, skipped ${duplicates} duplicate or blank` : ""}.${tooLongNote(result.tooLong)}`,
     });
   }));
 
@@ -247,9 +256,10 @@ export function registerRoutes(app: Express): Server {
       throw new HttpError(400, 'No style numbers found. Make sure the CSV has a "style_number" column.');
     }
     const result = await bulkCreateStyles(records);
+    const existing = result.skipped - result.tooLong;
     res.json({
       ...result,
-      message: `Imported ${result.created} style${result.created === 1 ? "" : "s"}${result.skipped ? `, skipped ${result.skipped} already in the catalog` : ""}.`,
+      message: `Imported ${result.created} style${result.created === 1 ? "" : "s"}${existing ? `, skipped ${existing} already in the catalog` : ""}.${tooLongNote(result.tooLong)}`,
     });
   }));
 

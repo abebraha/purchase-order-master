@@ -288,8 +288,11 @@ export const PODraftSchema = POFormObject.extend({
 export type POItemFormValues = z.infer<typeof POItemFormSchema>;
 export type POFormValues = z.infer<typeof POFormSchema>;
 
+/** Longest style number the styles library accepts (adding, editing and importing alike). */
+export const STYLE_NUMBER_MAX_LENGTH = 64;
+
 export const StyleFormSchema = z.object({
-  styleNumber: z.string().trim().min(1, "Style number is required").max(64, "Too long"),
+  styleNumber: z.string().trim().min(1, "Style number is required").max(STYLE_NUMBER_MAX_LENGTH, "Too long"),
   color: z.string().trim(),
   description: z.string().trim(),
 });

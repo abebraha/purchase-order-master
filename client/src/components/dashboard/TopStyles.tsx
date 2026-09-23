@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { Check, ChevronRight, Loader2, Tags } from "lucide-react";
 import type { StyleFormValues } from "@shared/po";
@@ -11,14 +11,21 @@ import { cn } from "@/lib/utils";
 import { TOP_STYLES_DAYS, type TopStyle } from "./metrics";
 import { QuietCard } from "./QuietCard";
 
-/** "in": in the styles library · "missing": typed on orders but never saved · "unknown": still loading. */
-type LibraryStatus = "in" | "missing" | "unknown";
+/**
+ * "in": in the styles library · "missing": typed on orders but never saved (offer Add) ·
+ * "checking": not in the library, waiting on the suggestions to know whether it can be added ·
+ * "unknown": nothing to show (the library is still loading or couldn't load, or there's nothing
+ * to add — e.g. its orders are linked to a library entry that was renamed since).
+ */
+type LibraryStatus = "in" | "missing" | "checking" | "unknown";
 
 /**
  * Whether each top style is in the styles library, and what to save for the ones that aren't
- * (the color and description used most on their orders).
+ * (the color and description used most on their orders). `added` are styles saved from here
+ * during this visit (key → the spelling saved): they count as in the library before it has
+ * refreshed.
  */
-function useLibraryStatus(styles: TopStyle[]) {
+function useLibraryStatus(styles: TopStyle[], added: ReadonlyMap<string, string>) {
   const library = useStyles();
   const suggestions = useStyleSuggestions();
 
@@ -27,19 +34,19 @@ function useLibraryStatus(styles: TopStyle[]) {
     const suggested = new Map((suggestions.data ?? []).map((s) => [styleKey(s.styleNumber), s]));
 
     const statusOf = (s: TopStyle): LibraryStatus => {
-      if (!library.data) return "unknown";
       const key = styleKey(s.styleNumber);
-      if (inLibrary.has(key)) return "in";
+      if (added.has(key) || inLibrary.has(key)) return "in";
+      if (!library.data) return "unknown";
       if (suggested.has(key)) return "missing";
-      // Suggestions couldn't load: go by the library alone. Otherwise they're still loading, or
-      // the orders link this style to a library entry that was renamed since (nothing to add).
-      return suggestions.error ? "missing" : "unknown";
+      // Suggestions couldn't load: go by the library alone.
+      if (!suggestions.data) return suggestions.error ? "missing" : "checking";
+      return "unknown";
     };
 
     /** The spelling saved in the library (or that "Add" will save), not just the first one typed. */
     const nameOf = (s: TopStyle): string => {
       const key = styleKey(s.styleNumber);
-      return inLibrary.get(key) ?? suggested.get(key)?.styleNumber ?? s.styleNumber;
+      return inLibrary.get(key) ?? added.get(key) ?? suggested.get(key)?.styleNumber ?? s.styleNumber;
     };
 
     const toStyle = (s: TopStyle): StyleFormValues => {
@@ -49,8 +56,18 @@ function useLibraryStatus(styles: TopStyle[]) {
         : { styleNumber: s.styleNumber, color: "", description: s.description };
     };
 
-    return { statusOf, nameOf, toStyle, missing: styles.filter((s) => statusOf(s) === "missing") };
-  }, [styles, library.data, suggestions.data, suggestions.error]);
+    const statuses = styles.map(statusOf);
+    return {
+      statusOf,
+      nameOf,
+      toStyle,
+      missing: styles.filter((_, i) => statuses[i] === "missing"),
+      /** Some row may still get an Add button: keep room for it, and hold the header action. */
+      checking: statuses.includes("checking"),
+      /** The library hasn't loaded yet, so it isn't known which rows need adding. */
+      loading: styles.length > 0 && !library.data && !library.error,
+    };
+  }, [styles, added, library.data, library.error, suggestions.data, suggestions.error]);
 }
 
 /**
@@ -60,29 +77,47 @@ function useLibraryStatus(styles: TopStyle[]) {
  * orders but never saved to the library get an "Add" button (and the header an "Add All").
  */
 export function TopStyles({ styles }: { styles: TopStyle[] }) {
-  const { statusOf, nameOf, toStyle, missing } = useLibraryStatus(styles);
-  const { add, isPending } = useAddToLibrary();
+  /** Styles saved from here this visit: key → the spelling saved. */
+  const [added, setAdded] = useState<ReadonlyMap<string, string>>(() => new Map());
   /** Keys of the styles being added right now (one row, or every missing row). */
   const [adding, setAdding] = useState<string[]>([]);
+  // A ref as well as state: a quick second tap can arrive before the buttons re-render disabled.
+  const busy = useRef(false);
+  const { statusOf, nameOf, toStyle, missing, checking, loading } = useLibraryStatus(styles, added);
+  const { add } = useAddToLibrary();
+  const isAdding = adding.length > 0;
 
   const addStyles = async (list: TopStyle[]) => {
-    if (isPending || list.length === 0) return;
-    setAdding(list.map((s) => styleKey(s.styleNumber)));
-    await add(list.map(toStyle));
-    setAdding([]);
+    if (busy.current || list.length === 0) return;
+    busy.current = true;
+    const keys = list.map((s) => styleKey(s.styleNumber));
+    const saving = list.map(toStyle);
+    setAdding(keys);
+    try {
+      // Mark them added together with the toast (before the suggestions drop them), so the rows go
+      // straight from the spinner to "In Library".
+      await add(saving, () =>
+        setAdded((prev) => new Map([...Array.from(prev), ...saving.map((s, i): [string, string] => [keys[i], s.styleNumber])])),
+      );
+    } finally {
+      busy.current = false;
+      setAdding([]);
+    }
   };
 
+  // Until it's known whether any style needs adding, show no action rather than a "See All"
+  // that turns into "Add All to Library" a moment later.
   const action =
     missing.length > 0 ? (
       <button
         type="button"
         onClick={() => addStyles(missing)}
-        disabled={isPending}
+        disabled={isAdding}
         className="relative shrink-0 rounded-md text-[15px] text-primary outline-none transition-opacity after:absolute after:-inset-x-2 after:-inset-y-3 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 md:text-sm"
       >
         Add All to Library
       </button>
-    ) : (
+    ) : checking || loading ? null : (
       <SectionLink href="/styles">See All</SectionLink>
     );
 
@@ -101,7 +136,10 @@ export function TopStyles({ styles }: { styles: TopStyle[] }) {
           statusOf={statusOf}
           nameOf={nameOf}
           adding={adding}
-          disabled={isPending}
+          // Phones show library status only while it tells rows apart: some row has (or may get)
+          // Add, or styles were just added here. Otherwise the rows stay as clean as before.
+          showStatus={isAdding || added.size > 0 || missing.length > 0 || checking}
+          canAdd={missing.length > 0 || checking}
           onAdd={(s) => addStyles([s])}
         />
       )}
@@ -114,23 +152,27 @@ function TopStylesList({
   statusOf,
   nameOf,
   adding,
-  disabled,
+  showStatus,
+  canAdd,
   onAdd,
 }: {
   styles: TopStyle[];
   statusOf: (s: TopStyle) => LibraryStatus;
   nameOf: (s: TopStyle) => string;
   adding: string[];
-  disabled: boolean;
+  /** Phones: give every row the status column (Add or the "In Library" check). */
+  showStatus: boolean;
+  /** Some row has (or is about to get) an Add button: the footer explains it. */
+  canAdd: boolean;
   onAdd: (s: TopStyle) => void;
 }) {
   const max = Math.max(...styles.map((s) => s.units), 1);
-  // Phones: the status column only needs room for an Add button while some row has one.
-  const roomForAdd = adding.length > 0 || styles.some((s) => statusOf(s) === "missing");
 
   return (
     <ListSection
-      footer={`Units ordered in the last ${TOP_STYLES_DAYS} days, not counting cancelled orders. Tap a style to see its orders.`}
+      footer={`Units ordered in the last ${TOP_STYLES_DAYS} days, not counting cancelled orders. ${
+        canAdd ? "Tap a style to see its orders, or Add to save it to your library." : "Tap a style to see its orders."
+      }`}
     >
       {styles.map((s, i) => {
         const pct = Math.max((s.units / max) * 100, 2);
@@ -186,13 +228,13 @@ function TopStylesList({
               </div>
             </Link>
 
-            {/* Same width on every row so the bars stay comparable. */}
-            <div className={cn("flex shrink-0 justify-end md:w-[6.5rem]", roomForAdd ? "w-[3.25rem]" : "w-4")}>
+            {/* Same width on every row so the bars stay comparable (and nothing shifts when Add appears). */}
+            <div className={cn("shrink-0 justify-end md:flex md:w-[6.5rem]", showStatus ? "flex w-[3.25rem]" : "hidden")}>
               {status === "missing" ? (
                 <AddButton
                   styleNumber={name}
                   pending={adding.includes(styleKey(s.styleNumber))}
-                  disabled={disabled}
+                  disabled={adding.length > 0}
                   onClick={() => onAdd(s)}
                 />
               ) : status === "in" ? (
@@ -203,10 +245,10 @@ function TopStylesList({
               ) : null}
             </div>
             <ChevronRight
-              // The narrowest phones need the room for the style # while Add buttons are shown.
+              // The narrowest phones need the room for the style # while the status column is shown.
               className={cn(
-                "-ml-1 -mr-1 h-[18px] w-[18px] shrink-0 text-muted-foreground/45",
-                roomForAdd && "max-[359px]:hidden",
+                "-mr-1 h-[18px] w-[18px] shrink-0 text-muted-foreground/45 md:-ml-1",
+                showStatus && "-ml-1 max-[359px]:hidden",
               )}
               strokeWidth={2.5}
               aria-hidden
