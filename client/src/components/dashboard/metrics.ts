@@ -16,8 +16,17 @@ import { lineTotal, PO_STATUSES, type POStatus, type PurchaseOrder } from "@shar
 import { parseDate } from "@/lib/format";
 import { isDueSoon, isOverdue, sortOrders } from "@/lib/filters";
 
-/** Orders that are placed but not yet received or cancelled. */
+/**
+ * "Open Orders" on Home: everything still to be received — Draft, Open, In Production and
+ * Shipped (a wider set than the single "Open" status, so the tile says "to receive").
+ */
 export const OPEN_STATUSES: POStatus[] = ["draft", "open", "in_production", "shipped"];
+
+/**
+ * Orders that count toward "This Month", the monthly chart and Top Styles: every status except
+ * Cancelled. Links from those figures filter the list by the same statuses so the counts match.
+ */
+export const ORDERED_STATUSES: POStatus[] = PO_STATUSES.filter((s) => s !== "cancelled");
 
 export const TOP_STYLES_DAYS = 90;
 const MONTHS_IN_CHART = 12;
@@ -139,7 +148,7 @@ export function summarize(orders: PurchaseOrder[], now: Date = new Date()): Dash
   >();
 
   for (const po of orders) {
-    if (po.status === "cancelled") continue;
+    if (!ORDERED_STATUSES.includes(po.status)) continue;
     const ordered = parseDate(po.orderDate);
     if (!ordered) continue;
     const day = dateKey(ordered);

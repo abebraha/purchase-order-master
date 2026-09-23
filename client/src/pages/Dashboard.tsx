@@ -17,6 +17,7 @@ import { TopStyles } from "@/components/dashboard/TopStyles";
 import { Welcome } from "@/components/dashboard/Welcome";
 import { greeting, summarize } from "@/components/dashboard/metrics";
 import { usePurchaseOrders } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 /** Re-render once a minute so the greeting and date stay current if Home is left open. */
 function useNow(intervalMs = 60_000) {
@@ -28,6 +29,10 @@ function useNow(intervalMs = 60_000) {
   return now;
 }
 
+/**
+ * The one "New Purchase Order" action on phones and tablets (the nav bar stays clear so it isn't
+ * offered twice). From lg up the sidebar's button covers it.
+ */
 function NewOrderButton() {
   return (
     <Button asChild size="lg" className="mb-6 w-full md:w-auto md:px-8 lg:hidden">
@@ -41,7 +46,7 @@ function NewOrderButton() {
 
 function SectionSkeleton({ rows = 4, className }: { rows?: number; className?: string }) {
   return (
-    <div className={className} aria-hidden>
+    <div className={cn("min-w-0", className)} aria-hidden>
       <Skeleton className="mb-3 ml-1 h-6 w-40 rounded-lg" />
       <div className="overflow-hidden rounded-xl bg-card">
         {Array.from({ length: rows }).map((_, i) => (
@@ -62,12 +67,12 @@ function DashboardSkeleton() {
   return (
     <div className="space-y-9" aria-busy="true" aria-label="Loading summary">
       <KpiTilesSkeleton />
-      <div className="grid gap-9 lg:grid-cols-2 lg:gap-6">
+      <div className="grid grid-cols-1 gap-9 lg:grid-cols-2 lg:gap-6">
         <SectionSkeleton />
         <SectionSkeleton />
       </div>
-      <div className="grid gap-9 lg:grid-cols-5 lg:gap-6 xl:grid-cols-3">
-        <div className="lg:col-span-3 xl:col-span-2">
+      <div className="grid grid-cols-1 gap-9 lg:grid-cols-5 lg:gap-6 xl:grid-cols-3">
+        <div className="min-w-0 lg:col-span-3 xl:col-span-2">
           <Skeleton className="mb-3 ml-1 h-6 w-44 rounded-lg" />
           <div className="rounded-2xl bg-card p-4 md:p-5">
             <Skeleton className="h-3 w-12 rounded-full" />
@@ -93,6 +98,9 @@ export default function Dashboard() {
   const summary = useMemo(() => (orders ? summarize(orders, now) : null), [orders, now]);
   const isEmpty = !!orders && orders.length === 0;
   const toReview = useMemo(() => (orders ?? []).filter((po) => po.needsReview), [orders]);
+  // Hidden only on the first-run welcome (it has its own button) and when nothing could load.
+  // A failed background refresh keeps the last data on screen, so keep the button with it.
+  const showNewOrder = !isEmpty && !(error && !orders);
 
   return (
     <>
@@ -101,16 +109,9 @@ export default function Dashboard() {
         compactTitle="Home"
         subtitle={format(now, "EEEE, MMMM d")}
         width="wide"
-        actions={
-          <Button asChild variant="plain" size="icon" className="lg:hidden">
-            <Link href="/purchase-orders/new" aria-label="New Purchase Order">
-              <Plus className="!h-[22px] !w-[22px]" strokeWidth={2.25} />
-            </Link>
-          </Button>
-        }
       />
       <PageContainer width="wide">
-        {!isEmpty && !error && <NewOrderButton />}
+        {showNewOrder && <NewOrderButton />}
 
         {isLoading ? (
           <DashboardSkeleton />
@@ -133,9 +134,11 @@ export default function Dashboard() {
 
             <ReviewOlderOrders orders={toReview} />
 
-            <div className="grid items-start gap-9 lg:grid-cols-2 lg:gap-6">
+            {/* grid-cols-1 = minmax(0, 1fr): long store names / PO numbers truncate instead of widening the page. */}
+            <div className="grid grid-cols-1 items-start gap-9 lg:grid-cols-2 lg:gap-6">
               <Section
                 title="Needs Attention"
+                className="min-w-0"
                 action={
                   summary.attention.length > 0 && (
                     <SectionLink href={attentionHref(summary.overdueCount)}>See All</SectionLink>
@@ -150,7 +153,11 @@ export default function Dashboard() {
                 />
               </Section>
 
-              <Section title="Recent Orders" action={<SectionLink href="/purchase-orders">See All</SectionLink>}>
+              <Section
+                title="Recent Orders"
+                className="min-w-0"
+                action={<SectionLink href="/purchase-orders">See All</SectionLink>}
+              >
                 <ListSection>
                   {summary.recent.map((po) => (
                     <PORow key={po.id} po={po} />
@@ -159,7 +166,7 @@ export default function Dashboard() {
               </Section>
             </div>
 
-            <div className="grid items-start gap-9 lg:grid-cols-5 lg:gap-6 xl:grid-cols-3">
+            <div className="grid grid-cols-1 items-start gap-9 lg:grid-cols-5 lg:gap-6 xl:grid-cols-3">
               <Section title="Monthly Orders" className="min-w-0 lg:col-span-3 xl:col-span-2">
                 <MonthlyChart data={summary.monthly} />
               </Section>
