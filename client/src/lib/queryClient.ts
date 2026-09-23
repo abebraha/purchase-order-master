@@ -1,5 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 
+/** Error thrown by API calls; carries the HTTP status and the server's human-readable message. */
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -17,7 +24,7 @@ export const queryClient = new QueryClient({
           } catch {
             // non-JSON error body
           }
-          throw new Error(message);
+          throw new ApiError(res.status, message);
         }
 
         return res.json();
@@ -25,7 +32,9 @@ export const queryClient = new QueryClient({
       // Keep data reasonably fresh when the app is used from a phone and a desktop.
       staleTime: 30_000,
       refetchOnWindowFocus: true,
-      retry: 1,
+      // Retry once for network/server hiccups, never for 4xx (e.g. a PO that doesn't exist).
+      retry: (failureCount, error) =>
+        failureCount < 1 && !(error instanceof ApiError && error.status >= 400 && error.status < 500),
     },
     mutations: {
       retry: false,

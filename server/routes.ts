@@ -29,6 +29,7 @@ import {
   listStyles,
   poNumberExists,
   recoverDeletedPurchaseOrder,
+  reviewPurchaseOrders,
   saveSettings,
   setArchived,
   setPurchaseOrderStatus,
@@ -102,7 +103,7 @@ const itemSchema = z.object({
   styleNumber: z.string().optional(),
   color: z.string().optional().default(""),
   description: z.string().optional().default(""),
-  quantity: numberField.refine((n) => n > 0, "Quantity must be more than 0"),
+  quantity: numberField.refine((n) => n >= 0, "Quantity can't be negative"),
   price: numberField.refine((n) => n >= 0, "Price can't be negative"),
 });
 
@@ -115,12 +116,14 @@ const poWriteSchema = z
     orderDate: dateField,
     startShipDate: dateField,
     cancelDate: dateField,
-    shipTo: z.string().trim().min(1, "Ship To address is required"),
-    billTo: z.string().trim().min(1, "Bill To address is required"),
+    shipTo: z.string().trim(),
+    billTo: z.string().trim(),
     // Optional so that older clients which don't send these fields never blank them on edit.
     specialInstructions: z.string().optional(),
     notes: z.string().optional(),
-    items: z.array(itemSchema).min(1, "Add at least one line item"),
+    items: z.array(itemSchema),
+    /** `version` of the PO the editor loaded; a mismatch means it changed meanwhile (HTTP 412). */
+    expectedVersion: z.string().optional(),
   })
   .transform((v) => ({
     ...v,
@@ -134,18 +137,33 @@ const poWriteSchema = z
     })),
   }));
 
+/** What a non-draft PO needs before it can be sent. Returns a friendly message, or null if complete. */
+function missingForSend(po: { shipTo: string; billTo: string; items: Array<{ manualStyleNumber: string; styleId: number | null; description: string; quantity: number }> }): string | null {
+  if (!po.shipTo.trim()) return "Add a Ship To address";
+  if (!po.billTo.trim()) return "Add a Bill To address";
+  if (po.items.length === 0) return "Add at least one line item";
+  if (po.items.some((i) => !(Number(i.quantity) > 0))) return "Every line item needs a quantity above 0";
+  if (po.items.some((i) => !i.manualStyleNumber && !i.styleId && !i.description.trim())) {
+    return "Every line item needs a style number or a description";
+  }
+  return null;
+}
+
 /** `current` is the saved PO when editing: fields the client omitted keep their saved values. */
-function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput {
+function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput & { expectedVersion?: string } {
   const v = poWriteSchema.parse(body);
   if (!(PO_TYPES as readonly string[]).includes(v.poType)) {
     throw new HttpError(400, `PO type must be one of: ${PO_TYPES.join(", ")}`);
   }
-  if (v.items.some((i) => !i.manualStyleNumber && !i.styleId)) {
-    throw new HttpError(400, "Every line item needs a style number");
+  const status = v.status ?? current?.status ?? "open";
+  // Drafts can be saved unfinished ("finish it later"); anything else must be complete.
+  if (status !== "draft") {
+    const missing = missingForSend(v);
+    if (missing) throw new HttpError(400, missing);
   }
   return {
     ...v,
-    status: v.status ?? current?.status ?? "open",
+    status,
     specialInstructions: v.specialInstructions ?? current?.specialInstructions ?? "",
     notes: v.notes ?? current?.notes ?? "",
   };
@@ -277,12 +295,30 @@ export function registerRoutes(app: Express): Server {
     const id = idParam(req);
     const current = await getPurchaseOrder(id);
     if (!current) throw new HttpError(404, "Purchase order not found");
-    res.json(await updatePurchaseOrder(id, parsePoWrite(req.body, current)));
+    const input = parsePoWrite(req.body, current);
+    res.json(await updatePurchaseOrder(id, input, input.expectedVersion));
+  }));
+
+  // Give older POs (created before status tracking) a status in one step.
+  app.post("/api/purchase-orders/review", route(async (req, res) => {
+    const { ids, status } = z
+      .object({ ids: z.array(z.number().int().positive()).min(1).max(5000), status: z.enum(PO_STATUSES) })
+      .parse(req.body);
+    const updated = await reviewPurchaseOrders(ids, status);
+    res.json({ updated });
   }));
 
   app.patch("/api/purchase-orders/:id/status", route(async (req, res) => {
     const { status } = z.object({ status: z.enum(PO_STATUSES) }).parse(req.body);
-    res.json(await setPurchaseOrderStatus(idParam(req), status));
+    res.json(
+      await setPurchaseOrderStatus(idParam(req), status, (po) => {
+        // A draft saved unfinished can't be marked as sent/shipped/etc. until it's complete.
+        if (status === "draft" || status === "cancelled") return;
+        const items = po.items.map((i) => ({ ...i, manualStyleNumber: i.manualStyleNumber || i.styleNumber }));
+        const missing = missingForSend({ ...po, items });
+        if (missing) throw new HttpError(400, `Finish this order first: ${missing.charAt(0).toLowerCase()}${missing.slice(1)}.`);
+      }),
+    );
   }));
 
   app.post("/api/purchase-orders/:id/archive", route(async (req, res) => {

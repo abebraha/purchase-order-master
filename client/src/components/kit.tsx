@@ -231,14 +231,21 @@ export function ListRow({
 
   if (href && !disabled) {
     return (
-      <Link href={href} className={classes} style={rowStyle}>
+      <Link href={href} className={classes} style={rowStyle} {...(rest as Record<string, unknown>)}>
         {inner}
       </Link>
     );
   }
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} disabled={disabled} className={classes} style={rowStyle}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={classes}
+        style={rowStyle}
+        {...(rest as ComponentPropsWithoutRef<"button">)}
+      >
         {inner}
       </button>
     );

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
-import { queryClient } from "./queryClient";
+import { ApiError, queryClient } from "./queryClient";
 import type {
   AddressBook,
   AppSettings,
@@ -13,11 +13,7 @@ import type {
   StyleRecord,
 } from "@shared/po";
 
-export class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+export { ApiError };
 
 /** JSON fetch helper. Throws ApiError with the server's message on non-2xx responses. */
 export async function api<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -169,6 +165,15 @@ export function useSetPurchaseOrderStatus() {
       cachePO(po);
       invalidatePurchaseOrders();
     },
+  });
+}
+
+/** Give older POs (created before status tracking) a status; each gets a history entry. */
+export function useReviewPurchaseOrders() {
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: number[]; status: POStatus }) =>
+      api<{ updated: number }>("POST", "/api/purchase-orders/review", { ids, status }),
+    onSuccess: () => invalidatePurchaseOrders(),
   });
 }
 
