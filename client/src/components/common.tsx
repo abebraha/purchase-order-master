@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Loader2, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Loader2, type LucideIcon } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,12 +61,12 @@ export function ResponsiveDialog({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className={cn("max-h-[90dvh] overflow-y-auto sm:max-w-lg", className)}>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+          <DialogHeader className="pr-8">
+            <DialogTitle className="text-[19px] font-semibold tracking-tight">{title}</DialogTitle>
             {description && <DialogDescription>{description}</DialogDescription>}
           </DialogHeader>
           {children}
-          {footer && <DialogFooter className="gap-2 sm:gap-0">{footer}</DialogFooter>}
+          {footer && <DialogFooter className="gap-2 pt-2 sm:gap-2 sm:space-x-0">{footer}</DialogFooter>}
         </DialogContent>
       </Dialog>
     );
@@ -74,13 +74,17 @@ export function ResponsiveDialog({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[92dvh]">
-        <DrawerHeader className="text-left">
-          <DrawerTitle>{title}</DrawerTitle>
-          {description && <DrawerDescription>{description}</DrawerDescription>}
+      <DrawerContent className="max-h-[94dvh]">
+        <DrawerHeader className="px-5 pb-3 pt-3 text-center">
+          <DrawerTitle className="text-[17px] font-semibold">{title}</DrawerTitle>
+          {description && <DrawerDescription className="text-[13px]">{description}</DrawerDescription>}
         </DrawerHeader>
-        <div className="overflow-y-auto px-4 pb-2">{children}</div>
-        {footer && <DrawerFooter className="pb-safe [&>*]:w-full">{footer}</DrawerFooter>}
+        <div className="overflow-y-auto px-4 pb-3">{children}</div>
+        {footer && (
+          <DrawerFooter className="gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 [&>*]:h-12 [&>*]:w-full [&>*]:text-[17px]">
+            {footer}
+          </DrawerFooter>
+        )}
       </DrawerContent>
     </Drawer>
   );
@@ -117,13 +121,13 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="w-[calc(100%-2rem)] rounded-xl">
+      <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
         {children}
-        <AlertDialogFooter className="gap-2 sm:gap-0">
+        <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             disabled={pending}
@@ -160,13 +164,13 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center px-6 py-14 text-center", className)}>
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-        <Icon className="h-6 w-6" />
+    <div className={cn("flex flex-col items-center justify-center px-6 py-16 text-center", className)}>
+      <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Icon className="h-8 w-8" strokeWidth={1.75} />
       </div>
-      <h3 className="text-base font-semibold">{title}</h3>
-      {description && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>}
-      {action && <div className="mt-5">{action}</div>}
+      <h3 className="text-title-3">{title}</h3>
+      {description && <p className="mt-1.5 max-w-sm text-[15px] leading-snug text-muted-foreground">{description}</p>}
+      {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
 }
@@ -175,10 +179,13 @@ export function EmptyState({
 export function ErrorState({ title = "Something went wrong", error, action }: { title?: string; error?: unknown; action?: ReactNode }) {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
   return (
-    <div className="mx-auto max-w-md rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
-      <h3 className="font-semibold text-destructive">{title}</h3>
-      {message && <p className="mt-1 text-sm text-muted-foreground">{message}</p>}
-      {action && <div className="mt-4 flex justify-center">{action}</div>}
+    <div className="mx-auto flex max-w-md flex-col items-center px-6 py-16 text-center">
+      <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+        <AlertTriangle className="h-8 w-8" strokeWidth={1.75} />
+      </div>
+      <h3 className="text-title-3">{title}</h3>
+      {message && <p className="mt-1.5 text-[15px] leading-snug text-muted-foreground">{message}</p>}
+      {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
 }

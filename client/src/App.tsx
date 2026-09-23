@@ -15,15 +15,14 @@ const Settings = lazy(() => import("./pages/Settings"));
 
 function PageFallback() {
   return (
-    <div className="mx-auto max-w-7xl space-y-4 px-4 py-6 lg:px-8 lg:py-10" aria-busy="true" aria-label="Loading">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-4 w-72" />
-      <div className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mx-auto max-w-5xl space-y-4 px-4 pt-[68px] md:px-6 lg:px-8" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-9 w-56" />
+      <div className="grid grid-cols-2 gap-3 pt-3 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" />
+          <Skeleton key={i} className="h-24 rounded-2xl" />
         ))}
       </div>
-      <Skeleton className="h-72 rounded-xl" />
+      <Skeleton className="h-64 rounded-2xl" />
     </div>
   );
 }
@@ -31,7 +30,7 @@ function PageFallback() {
 function NotFound() {
   return (
     <>
-      <PageHeader title="Page not found" backHref="/" />
+      <PageHeader title="Page Not Found" backHref="/" backLabel="Home" />
       <PageContainer>
         <EmptyState
           icon={FileQuestion}

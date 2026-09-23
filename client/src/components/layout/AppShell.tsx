@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ChevronLeft,
   FileText,
-  LayoutDashboard,
+  House,
   Monitor,
   Moon,
   Plus,
@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/kit";
 import { useTheme, type ThemePreference } from "@/components/theme";
 import { useSettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -24,34 +25,32 @@ import { cn } from "@/lib/utils";
 interface NavItem {
   href: string;
   label: string;
+  /** Short label for the phone tab bar */
+  tabLabel: string;
   icon: LucideIcon;
-  /** Extra path prefixes that should highlight this item. */
-  match?: (path: string) => boolean;
+  match: (path: string) => boolean;
 }
 
 const NAV: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, match: (p) => p === "/" },
+  { href: "/", label: "Home", tabLabel: "Home", icon: House, match: (p) => p === "/" },
   {
     href: "/purchase-orders",
     label: "Purchase Orders",
+    tabLabel: "Orders",
     icon: FileText,
     match: (p) => p.startsWith("/purchase-orders") && p !== "/purchase-orders/new",
   },
-  { href: "/styles", label: "Styles", icon: Tags, match: (p) => p.startsWith("/styles") },
-  { href: "/settings", label: "Settings", icon: Settings, match: (p) => p.startsWith("/settings") },
+  { href: "/styles", label: "Styles", tabLabel: "Styles", icon: Tags, match: (p) => p.startsWith("/styles") },
+  { href: "/settings", label: "Settings", tabLabel: "Settings", icon: Settings, match: (p) => p.startsWith("/settings") },
 ];
 
-function isActive(item: NavItem, path: string) {
-  return item.match ? item.match(path) : path === item.href;
-}
-
 // ---------------------------------------------------------------------------
-// Mobile nav visibility (form screens hide it and show their own action bar)
+// Mobile tab bar visibility (compose/edit screens hide it and show their own bar)
 // ---------------------------------------------------------------------------
 
 const MobileNavContext = createContext<{ setHidden: (hidden: boolean) => void }>({ setHidden: () => {} });
 
-/** Call from a page that renders its own fixed bottom action bar on mobile. */
+/** Call from a page that renders its own fixed bottom toolbar on phones. */
 export function useHideMobileNav() {
   const { setHidden } = useContext(MobileNavContext);
   useEffect(() => {
@@ -68,145 +67,92 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNavHidden, setMobileNavHidden] = useState(false);
   const [location] = useLocation();
 
-  // Scroll to top on navigation (keeps list → detail → back feeling native).
+  // Start each screen at the top (list → detail → back feels native).
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location]);
 
   return (
     <MobileNavContext.Provider value={{ setHidden: setMobileNavHidden }}>
-      <div className="min-h-dvh bg-background lg:pl-64">
+      <div className="min-h-dvh bg-background lg:pl-[260px]">
         <Sidebar path={location} />
         <main className="min-w-0">{children}</main>
-        {!mobileNavHidden && <MobileNav path={location} />}
+        {!mobileNavHidden && <TabBar path={location} />}
       </div>
     </MobileNavContext.Provider>
   );
 }
 
-function Brand() {
+function Sidebar({ path }: { path: string }) {
   const { data: settings } = useSettings();
   return (
-    <Link href="/" className="flex items-center gap-3 rounded-lg px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <img src="/icon.svg" alt="" className="h-9 w-9 shrink-0 rounded-[10px]" />
-      <div className="min-w-0 leading-tight">
-        <div className="font-semibold tracking-tight">PO Master</div>
-        <div className="truncate text-xs text-muted-foreground">{settings?.company.name ?? " "}</div>
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
+      <div className="flex items-center gap-2.5 px-5 pb-4 pt-6">
+        <img src="/icon.svg" alt="" className="h-8 w-8 shrink-0 rounded-[8px] shadow-sm" />
+        <div className="min-w-0 leading-tight">
+          <div className="text-[17px] font-semibold tracking-tight">PO Master</div>
+          {settings?.company.name && <div className="truncate text-xs text-muted-foreground">{settings.company.name}</div>}
+        </div>
       </div>
-    </Link>
-  );
-}
-
-function Sidebar({ path }: { path: string }) {
-  return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
-      <div className="px-4 pb-2 pt-5">
-        <Brand />
-      </div>
-      <div className="px-4 py-3">
-        <Button asChild className="w-full justify-start shadow-sm">
+      <div className="px-4 pb-4">
+        <Button asChild className="w-full">
           <Link href="/purchase-orders/new">
-            <Plus />
-            New purchase order
+            <Plus strokeWidth={2.5} />
+            New Purchase Order
           </Link>
         </Button>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-2" aria-label="Main">
+      <nav className="flex-1 space-y-0.5 px-3" aria-label="Main">
         {NAV.map((item) => {
-          const active = isActive(item, path);
+          const active = item.match(path);
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                "flex h-9 items-center gap-3 rounded-lg px-2.5 text-[15px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring/50",
                 active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                  ? "bg-sidebar-primary font-medium text-sidebar-primary-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent",
               )}
             >
-              <item.icon className={cn("h-4 w-4", active ? "text-primary" : "opacity-70")} />
+              <item.icon className={cn("h-[18px] w-[18px]", active ? "text-current" : "text-primary")} strokeWidth={2} />
               {item.label}
             </Link>
           );
         })}
       </nav>
-      <div className="border-t border-sidebar-border p-4">
-        <ThemeToggle />
-      </div>
     </aside>
   );
 }
 
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "Auto", icon: Monitor },
-];
-
-/** Segmented Light / Dark / Auto control. */
-export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme } = useTheme();
-  return (
-    <div role="radiogroup" aria-label="Theme" className={cn("grid grid-cols-3 gap-1 rounded-lg bg-muted p-1", className)}>
-      {THEME_OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          role="radio"
-          aria-checked={theme === opt.value}
-          onClick={() => setTheme(opt.value)}
-          className={cn(
-            "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            theme === opt.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <opt.icon className="h-3.5 w-3.5" />
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function MobileNav({ path }: { path: string }) {
-  const [dashboard, orders, styles, settings] = NAV;
-  const items: Array<NavItem | "new"> = [dashboard, orders, "new", styles, settings];
+function TabBar({ path }: { path: string }) {
   return (
     <nav
       aria-label="Main"
-      className="no-print fixed inset-x-0 bottom-0 z-40 border-t bg-background/90 pb-safe backdrop-blur-lg supports-[backdrop-filter]:bg-background/75 lg:hidden"
+      className="material-bar hairline-t no-print fixed inset-x-0 bottom-0 z-40 pb-safe lg:hidden"
     >
-      <div className="mx-auto grid h-[var(--mobile-nav-height)] max-w-lg grid-cols-5">
-        {items.map((item) => {
-          if (item === "new") {
-            return (
-              <div key="new" className="flex items-center justify-center">
-                <Link
-                  href="/purchase-orders/new"
-                  aria-label="New purchase order"
-                  className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25 transition-transform active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <Plus className="h-6 w-6" />
-                </Link>
-              </div>
-            );
-          }
-          const active = isActive(item, path);
-          const label = item.label === "Purchase Orders" ? "Orders" : item.label === "Dashboard" ? "Home" : item.label;
+      <div className="mx-auto grid h-[var(--mobile-nav-height)] max-w-md grid-cols-4">
+        {NAV.map((item) => {
+          const active = item.match(path);
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 text-[11px] font-medium outline-none transition-colors focus-visible:text-primary",
-                active ? "text-primary" : "text-muted-foreground",
+                "flex flex-col items-center justify-center gap-[3px] pt-1 text-[10px] font-medium outline-none transition-colors",
+                active ? "text-primary" : "text-[hsl(240_2%_57%)] active:opacity-60",
               )}
             >
-              <item.icon className="h-5 w-5" strokeWidth={active ? 2.25 : 1.75} />
-              {label}
+              <item.icon
+                className="h-[23px] w-[23px]"
+                strokeWidth={active ? 2.2 : 1.8}
+                fill={active ? "currentColor" : "none"}
+                fillOpacity={active ? 0.18 : 0}
+              />
+              {item.tabLabel}
             </Link>
           );
         })}
@@ -216,48 +162,163 @@ function MobileNav({ path }: { path: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Page scaffolding
+// Theme control (used in Settings)
 // ---------------------------------------------------------------------------
 
-interface PageHeaderProps {
-  title: ReactNode;
-  /** Shown under the title on desktop only. */
-  description?: ReactNode;
-  /** Renders a back chevron (always on mobile, on desktop too). */
-  backHref?: string;
-  /** Right-aligned actions. Keep to icon buttons or 1–2 compact buttons on mobile. */
-  actions?: ReactNode;
-  /** Optional content under the title row (e.g. badges) */
-  meta?: ReactNode;
-}
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "Automatic", icon: Monitor },
+];
 
-/**
- * Sticky, translucent app bar on mobile; roomy page title on desktop.
- * Place as the first child of a page, followed by <PageContainer>.
- */
-export function PageHeader({ title, description, backHref, actions, meta }: PageHeaderProps) {
+export function ThemeToggle({ className }: { className?: string }) {
+  const { theme, setTheme } = useTheme();
   return (
-    <header className="no-print sticky top-0 z-30 border-b bg-background/85 pt-safe backdrop-blur-lg supports-[backdrop-filter]:bg-background/70 lg:static lg:border-0 lg:bg-transparent lg:pt-0 lg:backdrop-blur-none">
-      <div className="mx-auto flex min-h-14 max-w-7xl items-center gap-2 px-4 py-2 lg:gap-3 lg:px-8 lg:pb-2 lg:pt-8">
-        {backHref && (
-          <Button variant="ghost" size="icon" asChild className="-ml-2 shrink-0 lg:-ml-3">
-            <Link href={backHref} aria-label="Back">
-              <ChevronLeft className="!h-5 !w-5" />
-            </Link>
-          </Button>
-        )}
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold tracking-tight lg:text-2xl">{title}</h1>
-          {description && <p className="mt-0.5 hidden text-sm text-muted-foreground lg:block">{description}</p>}
-          {meta && <div className="mt-1 flex flex-wrap items-center gap-2">{meta}</div>}
-        </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-      </div>
-    </header>
+    <SegmentedControl
+      aria-label="Appearance"
+      value={theme}
+      onChange={setTheme}
+      options={THEME_OPTIONS}
+      className={className}
+    />
   );
 }
 
-/** Standard page body width/padding. Leaves room for the mobile bottom nav. */
-export function PageContainer({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mx-auto max-w-7xl px-4 pb-mobile-nav pt-4 lg:px-8 lg:pb-12 lg:pt-4", className)}>{children}</div>;
+// ---------------------------------------------------------------------------
+// Page scaffolding
+// ---------------------------------------------------------------------------
+
+export type PageWidth = "narrow" | "default" | "wide";
+
+const WIDTH: Record<PageWidth, string> = {
+  narrow: "max-w-3xl",
+  default: "max-w-5xl",
+  wide: "max-w-7xl",
+};
+
+interface PageHeaderProps {
+  title: ReactNode;
+  /** Plain-text title for the compact bar when `title` is not a string. */
+  compactTitle?: string;
+  /** Secondary line under the large title. */
+  subtitle?: ReactNode;
+  /** Chips/badges under the large title (status, type…). */
+  meta?: ReactNode;
+  /** iOS back button: "‹ backLabel". */
+  backHref?: string;
+  backLabel?: string;
+  /** Replaces the back button (e.g. a "Cancel" plain button on compose screens). */
+  leading?: ReactNode;
+  /**
+   * Right side of the nav bar. On phones prefer plain/icon buttons (variant="plain" or
+   * size="icon"); keep to 1–2 items plus an optional "more" menu.
+   */
+  actions?: ReactNode;
+  /** Show the big 34px title under the bar (default). When false the title sits in the bar. */
+  largeTitle?: boolean;
+  width?: PageWidth;
+}
+
+/**
+ * Apple-style navigation bar + large title. The bar is transparent at the top of the page and
+ * turns into a translucent material with a centered compact title once the large title
+ * scrolls away — like Mail, Notes or Settings on iPhone.
+ */
+export function PageHeader({
+  title,
+  compactTitle,
+  subtitle,
+  meta,
+  backHref,
+  backLabel = "Back",
+  leading,
+  actions,
+  largeTitle = true,
+  width = "default",
+}: PageHeaderProps) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState(!largeTitle);
+
+  useEffect(() => {
+    if (!largeTitle) {
+      setCollapsed(true);
+      return;
+    }
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setCollapsed(entry.boundingClientRect.top < 60),
+      { threshold: [0, 1], rootMargin: "-60px 0px 0px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [largeTitle]);
+
+  const barTitle = compactTitle ?? (typeof title === "string" ? title : undefined);
+
+  return (
+    <>
+      <header className="no-print sticky top-0 z-30">
+        <div
+          className={cn(
+            "pt-safe transition-[background-color,box-shadow,backdrop-filter] duration-200",
+            collapsed ? "material-bar hairline-b" : "bg-transparent",
+          )}
+        >
+          <div className={cn("relative mx-auto flex h-[52px] items-center gap-2 px-2 md:px-4 lg:px-6", WIDTH[width])}>
+            <div className="z-10 flex min-w-0 flex-1 items-center">
+              {leading ??
+                (backHref && (
+                  <Link
+                    href={backHref}
+                    className="-ml-1 flex h-11 min-w-0 items-center rounded-lg pr-2 text-[17px] text-primary outline-none transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring/40 active:opacity-50 md:text-[15px]"
+                  >
+                    <ChevronLeft className="h-7 w-7 shrink-0 md:h-6 md:w-6" strokeWidth={2.4} />
+                    <span className="-ml-0.5 truncate">{backLabel}</span>
+                  </Link>
+                ))}
+            </div>
+            {barTitle && (
+              <div
+                aria-hidden={largeTitle}
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 mx-auto w-fit max-w-[55%] truncate text-center text-[17px] font-semibold transition-opacity duration-200 md:text-[15px]",
+                  collapsed ? "opacity-100" : "opacity-0",
+                )}
+              >
+                {barTitle}
+              </div>
+            )}
+            <div className="z-10 flex flex-1 items-center justify-end gap-1 md:gap-2">{actions}</div>
+          </div>
+        </div>
+      </header>
+      {largeTitle && (
+        <div className={cn("no-print mx-auto px-4 pb-1 md:px-6 lg:px-8", WIDTH[width])}>
+          <h1 className="text-large-title break-words">{title}</h1>
+          {subtitle && <p className="mt-1 text-[15px] leading-snug text-muted-foreground">{subtitle}</p>}
+          {meta && <div className="mt-2.5 flex flex-wrap items-center gap-2">{meta}</div>}
+          <div ref={sentinelRef} aria-hidden className="h-px" />
+        </div>
+      )}
+      {!largeTitle && <h1 className="sr-only">{barTitle}</h1>}
+    </>
+  );
+}
+
+/** Page body with consistent width and padding. Leaves room for the phone tab bar. */
+export function PageContainer({
+  children,
+  className,
+  width = "default",
+}: {
+  children: ReactNode;
+  className?: string;
+  width?: PageWidth;
+}) {
+  return (
+    <div className={cn("mx-auto px-4 pb-mobile-nav pt-4 md:px-6 lg:px-8 lg:pb-16 lg:pt-5", WIDTH[width], className)}>
+      {children}
+    </div>
+  );
 }

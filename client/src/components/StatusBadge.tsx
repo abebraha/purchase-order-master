@@ -2,30 +2,38 @@ import { Archive } from "lucide-react";
 import { PO_STATUS_LABELS, type POStatus } from "@shared/po";
 import { cn } from "@/lib/utils";
 
-export const STATUS_STYLES: Record<POStatus, { badge: string; dot: string }> = {
+// iOS system colors: a translucent tint for the pill, with a darker (light mode) or lighter
+// (dark mode) text shade so labels keep AA contrast.
+export const STATUS_STYLES: Record<POStatus, { badge: string; dot: string; text: string }> = {
   draft: {
-    badge: "bg-slate-100 text-slate-700 ring-slate-500/20 dark:bg-slate-400/10 dark:text-slate-300 dark:ring-slate-400/25",
-    dot: "bg-slate-400",
+    badge: "bg-ios-gray/15 text-[hsl(240_3%_36%)] dark:bg-ios-gray/25 dark:text-[hsl(240_4%_76%)]",
+    dot: "bg-ios-gray",
+    text: "text-[hsl(240_3%_36%)] dark:text-[hsl(240_4%_76%)]",
   },
   open: {
-    badge: "bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-400/10 dark:text-blue-300 dark:ring-blue-400/30",
-    dot: "bg-blue-500",
+    badge: "bg-ios-blue/[0.12] text-[hsl(211_100%_40%)] dark:bg-ios-blue/20 dark:text-[hsl(210_100%_70%)]",
+    dot: "bg-ios-blue",
+    text: "text-[hsl(211_100%_40%)] dark:text-[hsl(210_100%_70%)]",
   },
   in_production: {
-    badge: "bg-amber-50 text-amber-800 ring-amber-600/25 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/30",
-    dot: "bg-amber-500",
+    badge: "bg-ios-orange/15 text-[hsl(28_100%_33%)] dark:bg-ios-orange/20 dark:text-[hsl(36_100%_62%)]",
+    dot: "bg-ios-orange",
+    text: "text-[hsl(28_100%_33%)] dark:text-[hsl(36_100%_62%)]",
   },
   shipped: {
-    badge: "bg-violet-50 text-violet-700 ring-violet-600/20 dark:bg-violet-400/10 dark:text-violet-300 dark:ring-violet-400/30",
-    dot: "bg-violet-500",
+    badge: "bg-ios-indigo/[0.12] text-[hsl(241_52%_47%)] dark:bg-ios-indigo/25 dark:text-[hsl(241_90%_80%)]",
+    dot: "bg-ios-indigo",
+    text: "text-[hsl(241_52%_47%)] dark:text-[hsl(241_90%_80%)]",
   },
   received: {
-    badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/30",
-    dot: "bg-emerald-500",
+    badge: "bg-ios-green/15 text-[hsl(135_62%_26%)] dark:bg-ios-green/20 dark:text-[hsl(135_60%_62%)]",
+    dot: "bg-ios-green",
+    text: "text-[hsl(135_62%_26%)] dark:text-[hsl(135_60%_62%)]",
   },
   cancelled: {
-    badge: "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-400/10 dark:text-red-300 dark:ring-red-400/30",
-    dot: "bg-red-500",
+    badge: "bg-ios-red/[0.12] text-[hsl(3_80%_44%)] dark:bg-ios-red/20 dark:text-[hsl(3_100%_72%)]",
+    dot: "bg-ios-red",
+    text: "text-[hsl(3_80%_44%)] dark:text-[hsl(3_100%_72%)]",
   },
 };
 
@@ -38,7 +46,7 @@ export function StatusBadge({ status, className }: { status: POStatus; className
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-[3px] text-xs font-semibold leading-none",
         style.badge,
         className,
       )}
@@ -53,7 +61,7 @@ export function ArchivedBadge({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-inset ring-border",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-secondary px-2.5 py-[3px] text-xs font-semibold leading-none text-muted-foreground",
         className,
       )}
     >

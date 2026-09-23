@@ -7,7 +7,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", ...defaultTheme.fontFamily.sans],
+        // Apple devices render SF Pro via -apple-system; everyone else gets Inter (loaded in index.html).
+        sans: ["-apple-system", "BlinkMacSystemFont", '"SF Pro Text"', "Inter", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", ...defaultTheme.fontFamily.sans],
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -44,6 +45,18 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        ios: {
+          blue: "hsl(var(--ios-blue))",
+          green: "hsl(var(--ios-green))",
+          indigo: "hsl(var(--ios-indigo))",
+          orange: "hsl(var(--ios-orange))",
+          pink: "hsl(var(--ios-pink))",
+          purple: "hsl(var(--ios-purple))",
+          red: "hsl(var(--ios-red))",
+          teal: "hsl(var(--ios-teal))",
+          yellow: "hsl(var(--ios-yellow))",
+          gray: "hsl(var(--ios-gray))",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
