@@ -8,6 +8,13 @@ import { ThemeProvider } from "@/components/theme";
 import App from "./App";
 import "./index.css";
 
+// Chrome fires this once, early. Keep it so Settings → "Install App" works even if the event
+// arrived before that screen was opened (see components/settings/install.ts).
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  (window as Window & { __poInstallPrompt?: Event }).__poInstallPrompt = e;
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>

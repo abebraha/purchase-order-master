@@ -66,6 +66,23 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Sign-in sessions (see server/session-store.ts). Rows expire on their own; nothing else
+// references them.
+export const authSessions = pgTable("auth_sessions", {
+  sid: text("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+}, (t) => ({
+  expireIdx: index("auth_sessions_expire_idx").on(t.expire),
+}));
+
+// Server-generated secrets (e.g. the session signing key). Never exported in backups.
+export const appSecrets = pgTable("app_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const stylesRelations = relations(styles, ({ many }) => ({
   items: many(poItems),
 }));
