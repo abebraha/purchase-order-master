@@ -9,6 +9,7 @@ import { ConfirmDialog, ErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Form } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountSection } from "@/components/settings/AccountSection";
 import { DataSection } from "@/components/settings/DataSection";
 import { InstallSection } from "@/components/settings/InstallSection";
 import { RecentlyDeletedSection } from "@/components/settings/RecentlyDeletedSection";
@@ -106,7 +107,7 @@ function SettingsScreen() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [isDirty]);
 
-  // Deep links: /settings#deleted, #company, #defaults, #appearance, #data, #install.
+  // Deep links: /settings#deleted, #company, #defaults, #appearance, #data, #install, #account.
   const hash = useLocationHash();
   const ready = !isLoading;
   useEffect(() => {
@@ -206,6 +207,10 @@ function SettingsScreen() {
 
           <div id="install" className="scroll-mt-20">
             <InstallSection />
+          </div>
+
+          <div id="account" className="scroll-mt-20">
+            <AccountSection />
           </div>
 
           <AboutFooter companyName={settings?.company.name} />

@@ -87,6 +87,20 @@ const migrations: string[] = [
     value JSONB NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
+
+  // Sign-in: persistent sessions (so logins survive redeploys) and server-generated secrets.
+  // Kept out of app_settings on purpose so they never end up in a backup download.
+  `CREATE TABLE IF NOT EXISTS auth_sessions (
+    sid TEXT PRIMARY KEY,
+    sess JSONB NOT NULL,
+    expire TIMESTAMP NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS auth_sessions_expire_idx ON auth_sessions (expire)`,
+  `CREATE TABLE IF NOT EXISTS app_secrets (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
 ];
 
 async function migrate() {

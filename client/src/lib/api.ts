@@ -1,5 +1,5 @@
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
-import { ApiError, queryClient } from "./queryClient";
+import { ApiError, queryClient, reportUnauthorized } from "./queryClient";
 import type {
   AddressBook,
   AppSettings,
@@ -32,6 +32,8 @@ export async function api<T>(method: string, url: string, body?: unknown): Promi
     data = text;
   }
   if (!res.ok) {
+    // Sign-in requests answer 401 for a wrong password; anything else means the session ended.
+    if (res.status === 401 && !url.startsWith("/api/auth/")) reportUnauthorized();
     const message =
       (data && typeof data === "object" && (data.message || data.error)) ||
       (typeof data === "string" && data) ||

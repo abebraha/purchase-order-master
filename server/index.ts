@@ -4,11 +4,10 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { ready } from "@db";
 import { ensureBaselineRevisions } from "./storage";
+import { setupAuth } from "./auth";
 
 const app = express();
 app.use(compression());
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -46,6 +45,12 @@ app.use((req, res, next) => {
   await ready;
   const baselined = await ensureBaselineRevisions();
   if (baselined > 0) log(`saved ${baselined} existing purchase order(s) to history`);
+
+  // Sign-in first: a signed-out request never reaches the body parsers or the API routes
+  // (only /api/auth/* answers it).
+  await setupAuth(app);
+  app.use(express.json({ limit: "5mb" }));
+  app.use(express.urlencoded({ extended: false }));
 
   const server = registerRoutes(app);
 

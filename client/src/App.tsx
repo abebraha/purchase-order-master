@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Link, Route, Switch } from "wouter";
 import { FileQuestion } from "lucide-react";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { AppShell, PageContainer, PageHeader } from "@/components/layout/AppShell";
 import { EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -49,20 +50,22 @@ function NotFound() {
 
 function App() {
   return (
-    <AppShell>
-      <Suspense fallback={<PageFallback />}>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/purchase-orders" component={PurchaseOrders} />
-          <Route path="/purchase-orders/new" component={PurchaseOrderEditor} />
-          <Route path="/purchase-orders/:id/edit" component={PurchaseOrderEditor} />
-          <Route path="/purchase-orders/:id" component={PurchaseOrderView} />
-          <Route path="/styles" component={StyleManagement} />
-          <Route path="/settings" component={Settings} />
-          <Route component={NotFound} />
-        </Switch>
-      </Suspense>
-    </AppShell>
+    <AuthGate>
+      <AppShell>
+        <Suspense fallback={<PageFallback />}>
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/purchase-orders" component={PurchaseOrders} />
+            <Route path="/purchase-orders/new" component={PurchaseOrderEditor} />
+            <Route path="/purchase-orders/:id/edit" component={PurchaseOrderEditor} />
+            <Route path="/purchase-orders/:id" component={PurchaseOrderView} />
+            <Route path="/styles" component={StyleManagement} />
+            <Route path="/settings" component={Settings} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
+      </AppShell>
+    </AuthGate>
   );
 }
 
