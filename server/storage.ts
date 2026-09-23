@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { db } from "@db";
 import {
   styles,
@@ -108,8 +109,24 @@ async function loadItems(ex: Executor, poIds: number[]): Promise<Map<number, POI
   return byPo;
 }
 
+/**
+ * Fingerprint of everything a person can change on a PO (not derived/computed fields).
+ * Works for live rows and for stored snapshots alike, so it also detects edits made outside
+ * this server (e.g. the old app during a deploy, or a manual SQL fix).
+ */
+function contentVersion(po: Omit<PurchaseOrder, "version">): string {
+  const content = [
+    po.poNumber, po.poType, po.status, po.orderDate, po.startShipDate, po.cancelDate, po.dueDate ?? null,
+    po.terms, po.shipTo, po.billTo, po.specialInstructions ?? "", po.notes ?? "", po.archivedAt ?? null,
+    (po.items ?? []).map((i) => [
+      i.styleId ?? null, i.manualStyleNumber ?? "", i.color ?? "", i.description ?? "", Number(i.quantity) || 0, Number(i.price) || 0,
+    ]),
+  ];
+  return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 16);
+}
+
 function toPurchaseOrder(row: PurchaseOrderRow, items: POItem[], needsReview = false): PurchaseOrder {
-  return {
+  const po: Omit<PurchaseOrder, "version"> = {
     id: row.id,
     poNumber: row.poNumber,
     poType: row.poType,
@@ -130,7 +147,37 @@ function toPurchaseOrder(row: PurchaseOrderRow, items: POItem[], needsReview = f
     items,
     ...computeTotals(items),
   };
+  return { ...po, version: contentVersion(po) };
 }
+
+/** Row-locks a PO for the rest of the transaction so concurrent writes can't interleave. */
+async function lockPurchaseOrder(tx: Executor, id: number) {
+  await tx.select({ id: purchaseOrders.id }).from(purchaseOrders).where(eq(purchaseOrders.id, id)).for("update");
+}
+
+/**
+ * If the PO was changed without going through this server (so no history entry was written),
+ * save its current state to history before anything else changes it.
+ */
+async function captureExternalChanges(ex: Executor, po: PurchaseOrder): Promise<boolean> {
+  const [latest] = await ex
+    .select({ snapshot: poRevisions.snapshot })
+    .from(poRevisions)
+    .where(eq(poRevisions.poId, po.id))
+    .orderBy(desc(poRevisions.id))
+    .limit(1);
+  if (latest && contentVersion(latest.snapshot as PurchaseOrder) === po.version) return false;
+  await recordRevision(
+    ex,
+    po,
+    latest ? "external" : "baseline",
+    latest ? "Changes made outside PO Master were saved to history" : "Existing purchase order saved to history",
+  );
+  return true;
+}
+
+export const CONFLICT_MESSAGE =
+  "This purchase order was changed somewhere else (another device or screen) after you opened it.";
 
 /**
  * POs that only have the "baseline" history entry (they predate status tracking) and haven't
@@ -287,7 +334,7 @@ export async function createPurchaseOrder(input: POWriteInput): Promise<Purchase
           updatedAt: now,
         })
         .returning();
-      await tx.insert(poItems).values(itemValues(row.id, input.items));
+      if (input.items.length) await tx.insert(poItems).values(itemValues(row.id, input.items));
       const po = await requirePurchaseOrder(row.id, tx);
       await recordRevision(
         tx,
@@ -305,13 +352,20 @@ export async function createPurchaseOrder(input: POWriteInput): Promise<Purchase
   }
 }
 
-export async function updatePurchaseOrder(id: number, input: POWriteInput): Promise<PurchaseOrder> {
-  const before = await requirePurchaseOrder(id);
-  if (before.poNumber.toLowerCase() !== input.poNumber.trim().toLowerCase() && (await poNumberExists(input.poNumber, id))) {
+export async function updatePurchaseOrder(
+  id: number,
+  input: POWriteInput,
+  expectedVersion?: string,
+): Promise<PurchaseOrder> {
+  if (await poNumberExists(input.poNumber, id)) {
     throw new HttpError(409, `PO #${input.poNumber} already exists. Please use a different number.`);
   }
   try {
     return await db.transaction(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const before = await requirePurchaseOrder(id, tx);
+      if (expectedVersion && expectedVersion !== before.version) throw new HttpError(412, CONFLICT_MESSAGE);
+      await captureExternalChanges(tx, before);
       await tx
         .update(purchaseOrders)
         .set({
@@ -332,7 +386,7 @@ export async function updatePurchaseOrder(id: number, input: POWriteInput): Prom
         .where(eq(purchaseOrders.id, id));
       // Line items are replaced wholesale; the previous version is preserved in po_revisions.
       await tx.delete(poItems).where(eq(poItems.poId, id));
-      await tx.insert(poItems).values(itemValues(id, input.items));
+      if (input.items.length) await tx.insert(poItems).values(itemValues(id, input.items));
       const after = await requirePurchaseOrder(id, tx);
       const changes = describeChanges(before, after);
       await recordRevision(tx, after, "updated", changes.length ? changes.join("; ") : "Saved with no changes");
@@ -346,10 +400,17 @@ export async function updatePurchaseOrder(id: number, input: POWriteInput): Prom
   }
 }
 
-export async function setPurchaseOrderStatus(id: number, status: POStatus): Promise<PurchaseOrder> {
+export async function setPurchaseOrderStatus(
+  id: number,
+  status: POStatus,
+  check?: (po: PurchaseOrder) => void,
+): Promise<PurchaseOrder> {
   return db.transaction(async (tx) => {
+    await lockPurchaseOrder(tx, id);
     const before = await requirePurchaseOrder(id, tx);
     if (before.status === status) return before;
+    check?.(before);
+    await captureExternalChanges(tx, before);
     await tx
       .update(purchaseOrders)
       .set({ status, updatedAt: new Date() })
@@ -368,8 +429,11 @@ export async function reviewPurchaseOrders(ids: number[], status: POStatus): Pro
   let count = 0;
   for (const id of Array.from(new Set(ids))) {
     await db.transaction(async (tx) => {
+      await lockPurchaseOrder(tx, id);
       const before = await getPurchaseOrder(id, tx);
-      if (!before) return;
+      // Skip anything reviewed/edited meanwhile (e.g. on another device) — never override that.
+      if (!before || !before.needsReview) return;
+      await captureExternalChanges(tx, before);
       await tx.update(purchaseOrders).set({ status, updatedAt: new Date() }).where(eq(purchaseOrders.id, id));
       const after = await requirePurchaseOrder(id, tx);
       const change = describeChanges(before, after).find((c) => c.startsWith("Status"));
@@ -382,8 +446,10 @@ export async function reviewPurchaseOrders(ids: number[], status: POStatus): Pro
 
 export async function setArchived(id: number, archived: boolean): Promise<PurchaseOrder> {
   return db.transaction(async (tx) => {
+    await lockPurchaseOrder(tx, id);
     const before = await requirePurchaseOrder(id, tx);
     if (Boolean(before.archivedAt) === archived) return before;
+    await captureExternalChanges(tx, before);
     await tx
       .update(purchaseOrders)
       .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
@@ -402,7 +468,9 @@ export async function setArchived(id: number, archived: boolean): Promise<Purcha
 /** Permanently deletes an archived PO. A full snapshot is kept in po_revisions so it can be recovered. */
 export async function deletePurchaseOrder(id: number): Promise<void> {
   await db.transaction(async (tx) => {
+    await lockPurchaseOrder(tx, id);
     const po = await requirePurchaseOrder(id, tx);
+    await captureExternalChanges(tx, po);
     if (!po.archivedAt) {
       throw new HttpError(409, "Archive this purchase order before deleting it permanently.");
     }
@@ -524,6 +592,25 @@ export async function ensureBaselineRevisions(): Promise<number> {
     await recordRevision(db, po, "baseline", "Existing purchase order saved to history", new Date(po.updatedAt ?? po.createdAt));
     count++;
   }
+
+  // Catch up on changes made while this server wasn't the one writing (e.g. the previous
+  // version of the app was still running during a deploy, or a rollback): if a PO no longer
+  // matches its latest history entry, save its current state as a new entry.
+  const [pos, latest] = await Promise.all([
+    listPurchaseOrders("include"),
+    db.execute(sql`SELECT DISTINCT ON (po_id) po_id, snapshot FROM po_revisions ORDER BY po_id, id DESC`),
+  ]);
+  const latestByPo = new Map<number, PurchaseOrder>();
+  for (const row of latest as unknown as Array<{ po_id: number; snapshot: PurchaseOrder }>) {
+    latestByPo.set(Number(row.po_id), row.snapshot);
+  }
+  for (const po of pos) {
+    const snap = latestByPo.get(po.id);
+    if (snap && contentVersion(snap) !== po.version) {
+      await recordRevision(db, po, "external", "Changes made outside PO Master were saved to history");
+      count++;
+    }
+  }
   return count;
 }
 
@@ -552,13 +639,22 @@ export async function listAddresses(): Promise<AddressBook> {
   return { shipTo: collect("shipTo"), billTo: collect("billTo") };
 }
 
+/** All rows of a table exactly as stored (Postgres renders timestamps/numerics losslessly). */
+async function dumpTable(table: string, orderBy: string): Promise<unknown[]> {
+  const rows = await db.execute(
+    sql`SELECT coalesce(json_agg(t ORDER BY ${sql.raw(orderBy)})::text, '[]') AS rows FROM ${sql.raw(table)} t`,
+  );
+  const text = (rows as unknown as Array<{ rows: string }>)[0]?.rows ?? "[]";
+  return JSON.parse(text);
+}
+
 export async function exportBackup() {
   const [pos, items, styleRows, revisions, settings] = await Promise.all([
-    db.select().from(purchaseOrders).orderBy(asc(purchaseOrders.id)),
-    db.select().from(poItems).orderBy(asc(poItems.id)),
-    db.select().from(styles).orderBy(asc(styles.id)),
-    db.select().from(poRevisions).orderBy(asc(poRevisions.id)),
-    db.select().from(appSettings),
+    dumpTable("purchase_orders", "id"),
+    dumpTable("po_items", "id"),
+    dumpTable("styles", "id"),
+    dumpTable("po_revisions", "id"),
+    dumpTable("app_settings", "key"),
   ]);
   return {
     app: "purchase-order-master",

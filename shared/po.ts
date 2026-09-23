@@ -33,6 +33,7 @@ export const TERM_PRESETS = ["Net 30", "Net 45", "Net 60", "Net 90", "Due on Rec
 
 export const REVISION_ACTIONS = [
   "baseline",
+  "external",
   "created",
   "updated",
   "status",
@@ -45,6 +46,7 @@ export type RevisionAction = (typeof REVISION_ACTIONS)[number];
 
 export const REVISION_ACTION_LABELS: Record<RevisionAction, string> = {
   baseline: "Saved to history",
+  external: "Changed outside the app",
   created: "Created",
   updated: "Edited",
   status: "Status changed",
@@ -97,6 +99,11 @@ export interface PurchaseOrder {
    * "overdue" / "cancel soon" alerts and offered for a quick review instead.
    */
   needsReview: boolean;
+  /**
+   * Content fingerprint of the saved PO. The editor sends it back as `expectedVersion`; the
+   * server refuses the save (HTTP 412) if the PO changed in the meantime (another device, etc.).
+   */
+  version: string;
   items: POItem[];
   itemCount: number;
   totalQuantity: number;
@@ -195,22 +202,27 @@ const dateInput = z
   .string({ required_error: "Date is required" })
   .regex(DATE_INPUT_RE, "Enter a valid date");
 
-export const POItemFormSchema = z.object({
-  styleId: z.number().int().positive().nullable(),
-  manualStyleNumber: z.string().trim().min(1, "Style # is required"),
-  color: z.string().trim().min(1, "Color is required"),
-  description: z.string().trim(),
-  quantity: z.coerce
-    .number({ invalid_type_error: "Enter a quantity" })
-    .positive("Must be more than 0"),
-  price: z.coerce
-    .number({ invalid_type_error: "Enter a price" })
-    .min(0, "Can't be negative"),
-});
+export const POItemFormSchema = z
+  .object({
+    styleId: z.number().int().positive().nullable(),
+    manualStyleNumber: z.string().trim(),
+    color: z.string().trim().min(1, "Color is required"),
+    description: z.string().trim(),
+    quantity: z.coerce
+      .number({ invalid_type_error: "Enter a quantity" })
+      .positive("Must be more than 0"),
+    price: z.coerce
+      .number({ invalid_type_error: "Enter a price" })
+      .min(0, "Can't be negative"),
+  })
+  // Older orders have lines without a style number; a description is enough to identify them.
+  .refine((i) => i.manualStyleNumber.length > 0 || i.styleId !== null || i.description.length > 0, {
+    path: ["manualStyleNumber"],
+    message: "Choose a style (or add a description)",
+  });
 
 /** Form values used by the create/edit PO screen. Dates are `yyyy-MM-dd` strings (native date inputs). */
-export const POFormSchema = z
-  .object({
+const POFormObject = z.object({
     poNumber: z.string().trim().min(1, "PO number is required").max(64, "Too long"),
     poType: z.enum(PO_TYPES),
     status: z.enum(PO_STATUSES),
@@ -223,11 +235,32 @@ export const POFormSchema = z
     specialInstructions: z.string(),
     notes: z.string(),
     items: z.array(POItemFormSchema).min(1, "Add at least one line item"),
-  })
-  .refine((v) => v.cancelDate >= v.startShipDate, {
-    path: ["cancelDate"],
-    message: "Cancel date must be on or after the start ship date",
-  });
+});
+
+export const POFormSchema = POFormObject.refine((v) => v.cancelDate >= v.startShipDate, {
+  path: ["cancelDate"],
+  message: "Cancel date must be on or after the start ship date",
+});
+
+/**
+ * "Save as Draft" only needs a PO number and valid dates — everything else can be finished
+ * later. (The server applies the same relaxed rules to drafts.)
+ */
+export const PODraftSchema = POFormObject.extend({
+  shipTo: z.string(),
+  billTo: z.string(),
+  terms: z.string(),
+  items: z.array(
+    z.object({
+      styleId: z.number().int().positive().nullable(),
+      manualStyleNumber: z.string(),
+      color: z.string(),
+      description: z.string(),
+      quantity: z.coerce.number({ invalid_type_error: "Enter a quantity" }).min(0, "Can't be negative"),
+      price: z.coerce.number({ invalid_type_error: "Enter a price" }).min(0, "Can't be negative"),
+    }),
+  ),
+});
 
 export type POItemFormValues = z.infer<typeof POItemFormSchema>;
 export type POFormValues = z.infer<typeof POFormSchema>;
@@ -312,9 +345,24 @@ const FIELD_LABELS: Partial<Record<keyof PurchaseOrder, string>> = {
 
 const DATE_FIELDS = new Set<keyof PurchaseOrder>(["orderDate", "startShipDate", "cancelDate"]);
 
+/**
+ * Calendar days are compared in the company's time zone (New York). Older orders stored exact
+ * times (e.g. 11 pm Eastern = 03:00 UTC the next day); comparing UTC days would report date
+ * changes nobody made.
+ */
+export const BUSINESS_TIME_ZONE = "America/New_York";
+const businessDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 function dayOf(iso: string | null | undefined): string {
   if (!iso) return "";
-  return String(iso).slice(0, 10);
+  if (DATE_INPUT_RE.test(String(iso))) return String(iso);
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : businessDay.format(d);
 }
 
 function itemKey(i: POItem): string {

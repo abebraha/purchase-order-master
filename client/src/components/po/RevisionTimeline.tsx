@@ -17,6 +17,7 @@ import {
   ArrowRightLeft,
   Clock,
   Loader2,
+  MonitorSmartphone,
   Pencil,
   Plus,
   RotateCcw,
@@ -54,6 +55,7 @@ const ACTION_STYLE: Record<RevisionAction, { icon: LucideIcon; color: IosColor }
   deleted: { icon: Trash2, color: "red" },
   recovered: { icon: RotateCcw, color: "green" },
   baseline: { icon: Clock, color: "gray" },
+  external: { icon: MonitorSmartphone, color: "purple" },
 };
 
 // Apple title case: lowercase articles, short conjunctions and prepositions of ≤ 4 letters.
