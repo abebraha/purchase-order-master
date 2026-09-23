@@ -16,6 +16,7 @@ import { ArchivedBadge, StatusBadge } from "@/components/StatusBadge";
 import PODocument from "@/components/po/PODocument";
 import { PONavActions, POQuickActions, usePOActions, type POActionsApi } from "@/components/po/POActions";
 import { RevisionTimeline } from "@/components/po/RevisionTimeline";
+import { UnsavedEditBanner } from "@/components/po/UnsavedEditBanner";
 import {
   ArchivedBanner,
   DetailSkeleton,
@@ -170,6 +171,7 @@ function PODetail({
         width="wide"
       />
       <PageContainer width="wide" className="space-y-6">
+        <UnsavedEditBanner key={po.id} poId={po.id} />
         {api.archived && (
           <ArchivedBanner onRestore={api.restore} onDelete={api.requestDelete} restoring={api.restoring} />
         )}

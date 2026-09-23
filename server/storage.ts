@@ -413,9 +413,11 @@ export async function updatePurchaseOrder(
       await tx.delete(poItems).where(eq(poItems.poId, id));
       if (input.items.length) await tx.insert(poItems).values(itemValues(id, input.items));
       const after = await requirePurchaseOrder(id, tx);
+      // A save that changed nothing (e.g. the same form submitted from two tabs) adds no history.
+      if (after.version === before.version) return after;
       const changes = describeChanges(before, after);
-      await recordRevision(tx, after, "updated", changes.length ? changes.join("; ") : "Saved with no changes");
-      return after;
+      await recordRevision(tx, after, "updated", changes.length ? changes.join("; ") : "Updated");
+      return { ...after, needsReview: false }; // the entry just recorded counts as a review
     });
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -442,7 +444,7 @@ export async function setPurchaseOrderStatus(
       .where(eq(purchaseOrders.id, id));
     const after = await requirePurchaseOrder(id, tx);
     await recordRevision(tx, after, "status", describeChanges(before, after).join("; "));
-    return after;
+    return { ...after, needsReview: false };
   });
 }
 
@@ -607,7 +609,7 @@ export async function recoverDeletedPurchaseOrder(revisionId: number): Promise<P
         ? `Recovered from a deleted snapshot as PO #${poNumber} (PO #${snap.poNumber} is now used by another order)`
         : "Recovered from a deleted snapshot",
     );
-    return po;
+    return { ...po, needsReview: false };
   });
 }
 

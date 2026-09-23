@@ -112,7 +112,7 @@ const poWriteSchema = z
     poNumber: z.string().trim().min(1, "PO number is required").max(64),
     poType: z.string().trim().min(1).default("Regular PO"),
     status: z.enum(PO_STATUSES).optional(),
-    terms: z.string().trim().min(1).default("Net 30"),
+    terms: z.string().trim().default("Net 30"),
     orderDate: dateField,
     startShipDate: dateField,
     cancelDate: dateField,
@@ -160,6 +160,7 @@ function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput & { 
   if (status !== "draft") {
     const missing = missingForSend(v);
     if (missing) throw new HttpError(400, missing);
+    if (!v.terms) throw new HttpError(400, "Add payment terms");
   }
   return {
     ...v,

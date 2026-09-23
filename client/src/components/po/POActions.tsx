@@ -227,7 +227,7 @@ export function usePOActions(
             </ToastAction>
           ),
         });
-        navigate("/purchase-orders?view=archived");
+        navigate("/purchase-orders?view=archived", { replace: true });
       })
       .catch((error: Error) => {
         options.onDeleteEnd?.();
