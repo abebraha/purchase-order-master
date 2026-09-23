@@ -92,19 +92,17 @@ export default function Customers() {
     );
   } else if (total === 0) {
     body = (
-      <div className="rounded-2xl bg-card">
-        <EmptyState
-          icon={Users}
-          title="No customers yet"
-          description="Save the customers you order for. Pick one on a new purchase order and their addresses, payment terms and instructions fill in for you."
-          action={
-            <Button onClick={() => openAdd()}>
-              <Plus strokeWidth={2.5} />
-              Add Customer
-            </Button>
-          }
-        />
-      </div>
+      <EmptyState
+        icon={Users}
+        title="No customers yet"
+        description="Save the customers you order for. Pick one on a new purchase order and their addresses, payment terms and instructions fill in for you."
+        action={
+          <Button onClick={() => openAdd()}>
+            <Plus strokeWidth={2.5} />
+            Add Customer
+          </Button>
+        }
+      />
     );
   } else {
     const trimmed = query.trim();
@@ -135,19 +133,26 @@ export default function Customers() {
         </div>
 
         {results.length === 0 ? (
-          <div className="rounded-2xl bg-card">
-            <EmptyState
-              icon={SearchX}
-              title={`No Results for “${trimmed}”`}
-              description="Check the spelling, or search by a different name, contact or address."
-              action={
-                <Button variant="tinted" onClick={() => openAdd(trimmed.slice(0, 120))}>
+          <EmptyState
+            icon={SearchX}
+            title="No matching customers"
+            description={
+              <span className="[overflow-wrap:anywhere]">
+                No customers match “{trimmed}”. Try a different name, contact or address.
+              </span>
+            }
+            action={
+              <>
+                <Button variant="tinted" onClick={() => openAdd(trimmed.slice(0, 120))} className="max-w-[18rem]">
                   <Plus strokeWidth={2.5} />
-                  Add “{trimmed}”
+                  <span className="min-w-0 truncate">Add “{trimmed}”</span>
                 </Button>
-              }
-            />
-          </div>
+                <Button variant="plain" onClick={() => setQuery("")}>
+                  Clear Search
+                </Button>
+              </>
+            }
+          />
         ) : isDesktop ? (
           <CustomerTable
             customers={results}

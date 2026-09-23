@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ConfirmDialog } from "@/components/common";
+import { isIntentionalUnload } from "@/lib/unload";
 
 /**
  * Protects unsaved form changes:
@@ -21,7 +22,7 @@ export function useUnsavedChanges(dirty: boolean) {
   useEffect(() => {
     if (!dirty) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (leavingRef.current) return;
+      if (leavingRef.current || isIntentionalUnload()) return;
       e.preventDefault();
       e.returnValue = "";
     };

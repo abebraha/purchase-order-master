@@ -44,7 +44,7 @@ export function AccountSection() {
         open={confirmOpen}
         onOpenChange={(open) => !pending && setConfirmOpen(open)}
         title="Sign Out?"
-        description="You'll need your email and password to sign in again on this device."
+        description="Unsaved changes on this device will be discarded. You'll need your email and password to sign in again."
         confirmLabel="Sign Out"
         destructive
         pending={pending}

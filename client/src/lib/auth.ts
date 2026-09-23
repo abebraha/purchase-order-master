@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { onUnauthorized, queryClient } from "./queryClient";
+import { markIntentionalUnload } from "./unload";
 
 export interface AuthSession {
   /** False until APP_EMAIL and APP_PASSWORD are set on the server. */
@@ -43,8 +44,24 @@ export async function signIn(email: string, password: string, remember: boolean)
   void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] });
 }
 
+/** Unsaved order edits autosaved on this device (keys start with DRAFT_KEY in po/editor-model). */
+const EDITOR_DRAFT_PREFIX = "po-editor-draft";
+
+function clearEditorDrafts() {
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith(EDITOR_DRAFT_PREFIX)) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage blocked (private mode) — nothing was kept.
+  }
+}
+
 export async function signOut(): Promise<void> {
   await api("POST", "/api/auth/logout");
-  // Start over from a clean page, so nothing from the signed-in session stays in memory.
+  // Start over from a clean page, so nothing from the signed-in session stays in memory — or on
+  // this device (order edits that were never saved).
+  clearEditorDrafts();
+  markIntentionalUnload();
   window.location.replace("/");
 }

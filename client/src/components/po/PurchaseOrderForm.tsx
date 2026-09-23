@@ -14,11 +14,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch, type Control, type FieldErrors, type FieldPath } from "react-hook-form";
 import { Archive, ArrowDownToLine, CopyPlus, Eye, History, Loader2, RefreshCw } from "lucide-react";
-import type { AppSettings, CustomerFormValues, POFormValues, PurchaseOrder, StyleRecord } from "@shared/po";
+import type { AppSettings, CustomerFormValues, CustomerRecord, POFormValues, PurchaseOrder, StyleRecord } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
 import { ResponsiveDialog } from "@/components/common";
 import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
-import { PREFILL_FIELDS } from "@/components/customers/customerUtils";
+import { PREFILL_FIELDS, matchCustomer } from "@/components/customers/customerUtils";
 import { FormSection, IconTile, ListRow, ListSection, type IosColor } from "@/components/kit";
 import PODocument from "@/components/po/PODocument";
 import {
@@ -325,7 +325,12 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
    */
   const showLatest = useCallback(
     (latest: PurchaseOrder, held?: EditorValues) => {
-      const next = valuesFromPurchaseOrder(latest);
+      const loaded = valuesFromPurchaseOrder(latest);
+      // A full reset clears the picked customer; match it again the way the picker does on load
+      // (against the list as it is now: Review Latest runs this after an await).
+      const customers = queryClient.getQueryData<CustomerRecord[]>(keys.customers());
+      const match = customers?.length ? matchCustomer(customers, loaded) : null;
+      const next: EditorValues = { ...loaded, customerId: match?.id ?? null };
       setBase(latest);
       expectedVersionRef.current = latest.version;
       reset(next);
@@ -336,7 +341,7 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
       }
       return !!held && !sameEditorValues(held, next);
     },
-    [reset, storageKey],
+    [reset, storageKey, queryClient],
   );
 
   const reviewLatest = async () => {
@@ -344,7 +349,10 @@ export function PurchaseOrderForm({ mode, defaultValues, settings, po, source, s
     const held = getValues();
     setReviewing(true);
     try {
-      const latest = await queryClient.fetchQuery<PurchaseOrder>({ queryKey: keys.purchaseOrder(base.id), staleTime: 0 });
+      // Straight from the server: the cached copy is what the editor started from (and a
+      // signed-out device must see an error here, not that copy presented as the latest).
+      const latest = await api<PurchaseOrder>("GET", `/api/purchase-orders/${base.id}`);
+      queryClient.setQueryData(keys.purchaseOrder(base.id), latest);
       setConflict(null);
       const keptEdits = showLatest(latest, held);
       window.scrollTo({ top: 0, behavior: "smooth" });
