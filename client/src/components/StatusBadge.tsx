@@ -11,9 +11,9 @@ export const STATUS_STYLES: Record<POStatus, { badge: string; dot: string; text:
     text: "text-[hsl(240_3%_36%)] dark:text-[hsl(240_4%_76%)]",
   },
   open: {
-    badge: "bg-ios-blue/[0.12] text-[hsl(211_100%_40%)] dark:bg-ios-blue/20 dark:text-[hsl(210_100%_70%)]",
+    badge: "bg-ios-blue/[0.12] text-[hsl(211_100%_36%)] dark:bg-ios-blue/20 dark:text-[hsl(210_100%_70%)]",
     dot: "bg-ios-blue",
-    text: "text-[hsl(211_100%_40%)] dark:text-[hsl(210_100%_70%)]",
+    text: "text-[hsl(211_100%_36%)] dark:text-[hsl(210_100%_70%)]",
   },
   in_production: {
     badge: "bg-ios-orange/15 text-[hsl(28_100%_33%)] dark:bg-ios-orange/20 dark:text-[hsl(36_100%_62%)]",

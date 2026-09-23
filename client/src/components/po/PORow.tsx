@@ -35,7 +35,7 @@ export function PORow({ po, href }: { po: PurchaseOrder; href?: string }) {
             Past cancel date · {formatDate(po.cancelDate)}
           </span>
         ) : dueSoon ? (
-          <span className="font-medium text-[hsl(28_100%_38%)] dark:text-ios-orange">
+          <span className="font-medium text-[hsl(var(--warning-text))]">
             Cancel date {formatRelativeDays(po.cancelDate)} · {formatDateShort(po.cancelDate)}
           </span>
         ) : po.needsReview ? (

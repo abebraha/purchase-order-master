@@ -63,41 +63,126 @@ export function useHideMobileNav() {
 // Shell
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Navigation model: which history entry we're on, what came before, and where each entry
+// was scrolled. Installed at module load — before wouter subscribes to history events — so
+// Back/Forward are always recognised correctly. Kept on `window` so it survives hot reloads.
+// ---------------------------------------------------------------------------
+
+interface NavModel {
+  /** Index of the current history entry (stamped into history.state). */
+  idx: number;
+  /** How we got to the current entry; read and cleared by the scroll logic. */
+  type: "init" | "push" | "replace" | "pop";
+  /** URL (path + query) of each entry we've seen, by index. */
+  entries: Map<number, string>;
+  /** Last scroll position of each entry, by index. */
+  scroll: Map<number, number>;
+  /** Last full URL seen for each path (e.g. the Orders list with its filters). */
+  lastByPath: Map<string, string>;
+}
+
+const IDX_KEY = "__poIdx";
+const here = () => window.location.pathname + window.location.search;
+
+function installNavModel(): NavModel {
+  const w = window as Window & { __poNav?: NavModel };
+  if (w.__poNav) return w.__poNav;
+  const state = history.state as Record<string, unknown> | null;
+  const nav: NavModel = {
+    idx: typeof state?.[IDX_KEY] === "number" ? (state[IDX_KEY] as number) : 0,
+    type: "init",
+    entries: new Map(),
+    scroll: new Map(),
+    lastByPath: new Map(),
+  };
+  w.__poNav = nav;
+  const record = () => {
+    nav.entries.set(nav.idx, here());
+    nav.lastByPath.set(window.location.pathname, here());
+  };
+  if (typeof state?.[IDX_KEY] !== "number") {
+    history.replaceState({ ...(state ?? {}), [IDX_KEY]: nav.idx }, "");
+  }
+  record();
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method];
+    history[method] = function (this: History, data: unknown, unused: string, url?: string | URL | null) {
+      nav.scroll.set(nav.idx, window.scrollY); // position of the screen we're leaving
+      if (method === "pushState") {
+        nav.idx += 1;
+        // Forward history is gone after a push.
+        for (const k of Array.from(nav.entries.keys())) if (k >= nav.idx) nav.entries.delete(k);
+      }
+      nav.type = method === "pushState" ? "push" : "replace";
+      const stamped = { ...(data && typeof data === "object" ? data : {}), [IDX_KEY]: nav.idx };
+      const result = original.call(this, stamped, unused, url);
+      record();
+      return result;
+    } as History[typeof method];
+  }
+  window.addEventListener("popstate", (e) => {
+    nav.scroll.set(nav.idx, window.scrollY); // position of the screen we're leaving
+    const idx = (e.state as Record<string, unknown> | null)?.[IDX_KEY];
+    nav.idx = typeof idx === "number" ? idx : 0;
+    nav.type = "pop";
+    record();
+  });
+  window.addEventListener(
+    "scroll",
+    () => {
+      nav.scroll.set(nav.idx, window.scrollY);
+    },
+    { passive: true },
+  );
+  return nav;
+}
+
+const nav: NavModel | null = typeof window !== "undefined" ? installNavModel() : null;
+
 /**
- * New screens open at the top; Back/Forward returns to where you were (like iOS), so going
- * from a long list into a PO and back doesn't lose your place.
+ * Where a back button should go. If the previous history entry is that screen, go back to it
+ * (keeping its filters and scroll position, like iOS); otherwise link to the last version of
+ * that screen we saw (e.g. the Orders list with the filters you had).
+ */
+function resolveBack(backHref: string): { href: string; useHistory: boolean } {
+  if (!nav) return { href: backHref, useHistory: false };
+  const target = new URL(backHref, window.location.origin);
+  const prev = nav.entries.get(nav.idx - 1);
+  if (prev && new URL(prev, window.location.origin).pathname === target.pathname) {
+    return { href: prev, useHistory: true };
+  }
+  const last = target.search ? null : nav.lastByPath.get(target.pathname);
+  return { href: last ?? backHref, useHistory: false };
+}
+
+/**
+ * After finishing a task (e.g. saving in the editor), return to `href`: go back if the
+ * previous entry is already that screen (so Back doesn't reopen the editor), otherwise
+ * replace the current entry with it.
+ */
+export function returnTo(href: string, navigate: (to: string, opts?: { replace?: boolean }) => void) {
+  const prev = nav?.entries.get(nav.idx - 1);
+  if (prev && prev === href) history.back();
+  else navigate(href, { replace: true });
+}
+
+/**
+ * New screens open at the top; Back/Forward returns to exactly where that screen was
+ * scrolled (like iOS), so going from a long list into a PO and back doesn't lose your place.
  */
 function useScrollRestoration(location: string) {
-  const positions = useRef(new Map<string, number>());
-  const currentKey = useRef("");
-  const poppedRef = useRef(false);
-
-  useEffect(() => {
-    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-    const onPop = () => {
-      poppedRef.current = true;
-    };
-    const onScroll = () => {
-      positions.current.set(currentKey.current, window.scrollY);
-    };
-    window.addEventListener("popstate", onPop);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("popstate", onPop);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
-  // Layout effect: runs before paint, so scroll events caused by the new screen's height are
-  // attributed to the new screen and never overwrite the previous screen's saved position.
   useLayoutEffect(() => {
-    currentKey.current = location + window.location.search;
-    if (!poppedRef.current) {
+    if (!nav) return;
+    const type = nav.type;
+    nav.type = "init";
+    if (type !== "pop") {
       window.scrollTo(0, 0);
       return;
     }
-    poppedRef.current = false;
-    const target = positions.current.get(currentKey.current) ?? 0;
+    const target = nav.scroll.get(nav.idx) ?? 0;
     let frames = 0;
     const restore = () => {
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
@@ -112,18 +197,33 @@ function useScrollRestoration(location: string) {
   }, [location]);
 }
 
+// Page layout context: pages with a large title align their content under it (so the title
+// doesn't jump sideways when switching tabs on desktop).
+const PageLayoutContext = createContext<{ largeTitle: boolean; setLargeTitle: (v: boolean) => void }>({
+  largeTitle: false,
+  setLargeTitle: () => {},
+});
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNavHidden, setMobileNavHidden] = useState(false);
+  const [largeTitle, setLargeTitle] = useState(false);
   const [location] = useLocation();
   useScrollRestoration(location);
 
+  // Toasts sit just above whatever bar is at the bottom of the phone screen.
+  useEffect(() => {
+    document.documentElement.style.setProperty("--toast-offset", mobileNavHidden ? "5.75rem" : "3.75rem");
+  }, [mobileNavHidden]);
+
   return (
     <MobileNavContext.Provider value={{ setHidden: setMobileNavHidden }}>
-      <div className="min-h-dvh bg-background lg:pl-[260px]">
-        <Sidebar path={location} />
-        <main className="min-w-0">{children}</main>
-        {!mobileNavHidden && <TabBar path={location} />}
-      </div>
+      <PageLayoutContext.Provider value={{ largeTitle, setLargeTitle }}>
+        <div className="min-h-dvh bg-background lg:pl-[260px]">
+          <Sidebar path={location} />
+          <main className="min-w-0">{children}</main>
+          {!mobileNavHidden && <TabBar path={location} />}
+        </div>
+      </PageLayoutContext.Provider>
     </MobileNavContext.Provider>
   );
 }
@@ -188,7 +288,7 @@ function TabBar({ path }: { path: string }) {
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex flex-col items-center justify-center gap-[3px] pt-1 text-[10px] font-medium outline-none transition-colors",
-                active ? "text-primary" : "text-[hsl(240_2%_57%)] active:opacity-60",
+                active ? "text-primary" : "text-muted-foreground active:opacity-60",
               )}
             >
               <item.icon
@@ -283,6 +383,14 @@ export function PageHeader({
 }: PageHeaderProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(!largeTitle);
+  const layout = useContext(PageLayoutContext);
+  const setLayoutLargeTitle = layout.setLargeTitle;
+
+  useLayoutEffect(() => {
+    if (!largeTitle) return;
+    setLayoutLargeTitle(true);
+    return () => setLayoutLargeTitle(false);
+  }, [largeTitle, setLayoutLargeTitle]);
 
   useEffect(() => {
     if (!largeTitle) {
@@ -301,6 +409,15 @@ export function PageHeader({
 
   const barTitle = compactTitle ?? (typeof title === "string" ? title : undefined);
 
+  // Browser tab / window title (also announced to screen readers on navigation).
+  useEffect(() => {
+    document.title = barTitle ? `${barTitle} · PO Master` : "PO Master";
+  }, [barTitle]);
+
+  const back = backHref ? resolveBack(backHref) : null;
+  // Large-title pages share one left edge (the wide column) so titles never jump sideways.
+  const headerWidth = largeTitle ? WIDTH.wide : WIDTH[width];
+
   return (
     <>
       <header className="no-print sticky top-0 z-30">
@@ -310,12 +427,17 @@ export function PageHeader({
             collapsed ? "material-bar hairline-b" : "bg-transparent",
           )}
         >
-          <div className={cn("relative mx-auto flex h-[52px] items-center gap-2 px-2 md:px-4 lg:px-6", WIDTH[width])}>
+          <div className={cn("relative mx-auto flex h-[52px] items-center gap-2 px-2 md:px-4 lg:px-6", headerWidth)}>
             <div className="z-10 flex min-w-0 flex-1 items-center">
               {leading ??
-                (backHref && (
+                (back && (
                   <Link
-                    href={backHref}
+                    href={back.href}
+                    onClick={(e) => {
+                      if (!back.useHistory || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                      e.preventDefault();
+                      history.back();
+                    }}
                     className="-ml-1 flex h-11 min-w-0 items-center rounded-lg pr-2 text-[17px] text-primary outline-none transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring/40 active:opacity-50 md:text-[15px]"
                   >
                     <ChevronLeft className="h-7 w-7 shrink-0 md:h-6 md:w-6" strokeWidth={2.4} />
@@ -339,9 +461,9 @@ export function PageHeader({
         </div>
       </header>
       {largeTitle && (
-        <div className={cn("no-print mx-auto px-4 pb-1 md:px-6 lg:px-8", WIDTH[width])}>
-          <h1 className="text-large-title break-words">{title}</h1>
-          {subtitle && <p className="mt-1 text-[15px] leading-snug text-muted-foreground">{subtitle}</p>}
+        <div className={cn("no-print mx-auto px-4 pb-1 md:px-6 lg:px-8", headerWidth)}>
+          <h1 className="text-large-title [overflow-wrap:anywhere]">{title}</h1>
+          {subtitle && <p className="mt-1 text-[15px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</p>}
           {meta && <div className="mt-2.5 flex flex-wrap items-center gap-2">{meta}</div>}
           <div ref={sentinelRef} aria-hidden className="h-px" />
         </div>
@@ -361,9 +483,15 @@ export function PageContainer({
   className?: string;
   width?: PageWidth;
 }) {
-  return (
-    <div className={cn("mx-auto px-4 pb-mobile-nav pt-4 md:px-6 lg:px-8 lg:pb-16 lg:pt-5", WIDTH[width], className)}>
-      {children}
-    </div>
-  );
+  const { largeTitle } = useContext(PageLayoutContext);
+  const padding = "px-4 pb-mobile-nav pt-4 md:px-6 lg:px-8 lg:pb-16 lg:pt-5";
+  if (largeTitle && width !== "wide") {
+    // Under a large title: same left edge as the title, content keeps its comfortable width.
+    return (
+      <div className={cn("mx-auto", WIDTH.wide, padding)}>
+        <div className={cn(WIDTH[width], className)}>{children}</div>
+      </div>
+    );
+  }
+  return <div className={cn("mx-auto", padding, WIDTH[width], className)}>{children}</div>;
 }

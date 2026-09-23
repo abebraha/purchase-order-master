@@ -239,14 +239,29 @@ export async function poNumberExists(poNumber: string, excludeId?: number): Prom
   return rows.some((r) => r.id !== excludeId);
 }
 
+/** PO numbers of deleted POs (kept so they can be recovered without a number clash). */
+async function deletedPoNumbers(): Promise<Set<string>> {
+  const rows = await db
+    .select({ poNumber: poRevisions.poNumber })
+    .from(poRevisions)
+    .where(
+      and(
+        eq(poRevisions.action, "deleted"),
+        sql`NOT EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = "po_revisions"."po_id")`,
+      ),
+    );
+  return new Set(rows.map((r) => r.poNumber.trim().toLowerCase()));
+}
+
 export async function suggestNextPoNumber(increment: (last: string) => string): Promise<string> {
   const [latest] = await db
     .select({ poNumber: purchaseOrders.poNumber })
     .from(purchaseOrders)
     .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
     .limit(1);
+  const deleted = await deletedPoNumbers();
   let candidate = increment(latest?.poNumber ?? "1000");
-  for (let i = 0; i < 500 && (await poNumberExists(candidate)); i++) {
+  for (let i = 0; i < 500 && (deleted.has(candidate.toLowerCase()) || (await poNumberExists(candidate))); i++) {
     candidate = increment(candidate);
   }
   return candidate;
@@ -531,15 +546,18 @@ export async function recoverDeletedPurchaseOrder(revisionId: number): Promise<P
   if (!rev || rev.action !== "deleted") throw new HttpError(404, "Deleted purchase order not found");
   const snap = rev.snapshot as PurchaseOrder;
   if (await getPurchaseOrder(rev.poId)) throw new HttpError(409, "This purchase order already exists.");
-  if (await poNumberExists(snap.poNumber)) {
-    throw new HttpError(409, `PO #${snap.poNumber} is already used by another purchase order.`);
+  // If its number was reused meanwhile, recover it as "<number>-R" (then -R2, -R3…) rather than failing.
+  let poNumber = snap.poNumber;
+  for (let n = 1; n < 100 && (await poNumberExists(poNumber)); n++) {
+    poNumber = `${snap.poNumber}-R${n === 1 ? "" : n}`;
   }
+  const renumbered = poNumber !== snap.poNumber;
   return db.transaction(async (tx) => {
     const date = (v: string | null | undefined, fallback: Date) => (v ? new Date(v) : fallback);
     const now = new Date();
     await tx.insert(purchaseOrders).values({
       id: rev.poId,
-      poNumber: snap.poNumber,
+      poNumber,
       poType: snap.poType,
       status: normalizeStatus(snap.status),
       terms: snap.terms,
@@ -571,7 +589,14 @@ export async function recoverDeletedPurchaseOrder(revisionId: number): Promise<P
       );
     }
     const po = await requirePurchaseOrder(rev.poId, tx);
-    await recordRevision(tx, po, "recovered", "Recovered from a deleted snapshot");
+    await recordRevision(
+      tx,
+      po,
+      "recovered",
+      renumbered
+        ? `Recovered from a deleted snapshot as PO #${poNumber} (PO #${snap.poNumber} is now used by another order)`
+        : "Recovered from a deleted snapshot",
+    );
     return po;
   });
 }
