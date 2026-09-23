@@ -10,6 +10,7 @@ import {
   SettingsSchema,
   StyleFormSchema,
   incrementPoNumber,
+  type PurchaseOrder,
 } from "../shared/po";
 import {
   HttpError,
@@ -116,8 +117,9 @@ const poWriteSchema = z
     cancelDate: dateField,
     shipTo: z.string().trim().min(1, "Ship To address is required"),
     billTo: z.string().trim().min(1, "Bill To address is required"),
-    specialInstructions: z.string().optional().default(""),
-    notes: z.string().optional().default(""),
+    // Optional so that older clients which don't send these fields never blank them on edit.
+    specialInstructions: z.string().optional(),
+    notes: z.string().optional(),
     items: z.array(itemSchema).min(1, "Add at least one line item"),
   })
   .transform((v) => ({
@@ -132,7 +134,8 @@ const poWriteSchema = z
     })),
   }));
 
-function parsePoWrite(body: unknown, fallbackStatus: POWriteInput["status"]): POWriteInput {
+/** `current` is the saved PO when editing: fields the client omitted keep their saved values. */
+function parsePoWrite(body: unknown, current?: PurchaseOrder): POWriteInput {
   const v = poWriteSchema.parse(body);
   if (!(PO_TYPES as readonly string[]).includes(v.poType)) {
     throw new HttpError(400, `PO type must be one of: ${PO_TYPES.join(", ")}`);
@@ -140,7 +143,12 @@ function parsePoWrite(body: unknown, fallbackStatus: POWriteInput["status"]): PO
   if (v.items.some((i) => !i.manualStyleNumber && !i.styleId)) {
     throw new HttpError(400, "Every line item needs a style number");
   }
-  return { ...v, status: v.status ?? fallbackStatus };
+  return {
+    ...v,
+    status: v.status ?? current?.status ?? "open",
+    specialInstructions: v.specialInstructions ?? current?.specialInstructions ?? "",
+    notes: v.notes ?? current?.notes ?? "",
+  };
 }
 
 function archivedFilter(value: unknown): ArchivedFilter {
@@ -194,7 +202,7 @@ export function registerRoutes(app: Express): Server {
     if (!req.file) throw new HttpError(400, "No file uploaded");
     let rows: Record<string, string>[];
     try {
-      rows = parse(req.file.buffer.toString("utf8").replace(/^﻿/, ""), {
+      rows = parse(req.file.buffer.toString("utf8").replace(/^\uFEFF/, ""), {
         columns: true,
         skip_empty_lines: true,
         trim: true,
@@ -262,14 +270,14 @@ export function registerRoutes(app: Express): Server {
   }));
 
   app.post("/api/purchase-orders", route(async (req, res) => {
-    res.status(201).json(await createPurchaseOrder(parsePoWrite(req.body, "open")));
+    res.status(201).json(await createPurchaseOrder(parsePoWrite(req.body)));
   }));
 
   app.put("/api/purchase-orders/:id", route(async (req, res) => {
     const id = idParam(req);
     const current = await getPurchaseOrder(id);
     if (!current) throw new HttpError(404, "Purchase order not found");
-    res.json(await updatePurchaseOrder(id, parsePoWrite(req.body, current.status)));
+    res.json(await updatePurchaseOrder(id, parsePoWrite(req.body, current)));
   }));
 
   app.patch("/api/purchase-orders/:id/status", route(async (req, res) => {

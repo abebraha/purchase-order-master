@@ -298,7 +298,7 @@ export async function updatePurchaseOrder(id: number, input: POWriteInput): Prom
           orderDate: input.orderDate,
           startShipDate: input.startShipDate,
           cancelDate: input.cancelDate,
-          dueDate: input.cancelDate,
+          // due_date is intentionally left as saved (no longer edited in the UI).
           shipTo: input.shipTo.trim(),
           billTo: input.billTo.trim(),
           specialInstructions: input.specialInstructions.trim(),
