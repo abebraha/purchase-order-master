@@ -16,6 +16,7 @@ import { ArchivedBadge, StatusBadge } from "@/components/StatusBadge";
 import PODocument from "@/components/po/PODocument";
 import { PONavActions, POQuickActions, usePOActions, type POActionsApi } from "@/components/po/POActions";
 import { RevisionTimeline } from "@/components/po/RevisionTimeline";
+import { UnsavedEditBanner } from "@/components/po/UnsavedEditBanner";
 import {
   ArchivedBanner,
   DetailSkeleton,
@@ -136,7 +137,6 @@ function PODetail({
   const data = useMemo(() => documentFromPurchaseOrder(po), [po]);
   const title = `PO #${po.poNumber}`;
   const customer = firstLine(po.shipTo);
-  useDocumentTitle(title);
   useShortcuts(api);
 
   const meta = (
@@ -171,6 +171,7 @@ function PODetail({
         width="wide"
       />
       <PageContainer width="wide" className="space-y-6">
+        <UnsavedEditBanner key={po.id} poId={po.id} />
         {api.archived && (
           <ArchivedBanner onRestore={api.restore} onDelete={api.requestDelete} restoring={api.restoring} />
         )}
@@ -278,15 +279,6 @@ function StickyColumn({ children }: { children: ReactNode }) {
   );
 }
 
-function useDocumentTitle(title: string) {
-  useEffect(() => {
-    const previous = document.title;
-    document.title = `${title} · PO Master`;
-    return () => {
-      document.title = previous;
-    };
-  }, [title]);
-}
 
 /** Desktop keyboard shortcuts: E edits, ⌘P / Ctrl+P prints the PO (not the web page). */
 function useShortcuts(api: POActionsApi) {

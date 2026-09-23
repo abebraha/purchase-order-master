@@ -60,7 +60,7 @@ export function ReviewOlderOrders({
           </p>
         </div>
       </div>
-      <div className="flex shrink-0 gap-2 md:justify-end">
+      <div className="flex shrink-0 flex-wrap gap-2 md:flex-nowrap md:justify-end">
         {showReviewLink && (
           <Button asChild variant="secondary" className="flex-1 md:flex-none">
             <Link href={ordersHref({ review: true })}>Review</Link>

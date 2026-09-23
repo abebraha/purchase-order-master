@@ -23,7 +23,8 @@ export function Chip({
   selected?: boolean;
   onClick: () => void;
   children: ReactNode;
-  count?: number;
+  /** Orders this chip would show; null while loading (a placeholder keeps the chip's width). */
+  count?: number | null;
   /** Dim an unselected chip (e.g. a status with no matching orders). */
   muted?: boolean;
   className?: string;
@@ -52,16 +53,13 @@ export function Chip({
         )}
       >
         {children}
-        {count !== undefined && (
-          <span
-            className={cn(
-              "tabular-nums",
-              selected ? "text-primary-foreground/75" : "text-muted-foreground",
-            )}
-          >
+        {count === null ? (
+          <span aria-hidden className="h-[0.65em] w-[0.8em] rounded-[3px] bg-current opacity-15" />
+        ) : count !== undefined ? (
+          <span className={cn("tabular-nums", selected ? "text-primary-foreground/75" : "text-muted-foreground")}>
             {count.toLocaleString("en-US")}
           </span>
-        )}
+        ) : null}
       </span>
     </button>
   );
@@ -72,7 +70,9 @@ function Divider() {
 }
 
 // ---------------------------------------------------------------------------
-// FilterChips — the horizontally scrolling filter row under the search field
+// FilterChips — the filter row under the search field. Phones: one row that scrolls sideways
+// (edge to edge, swipeable). Tablet / desktop: the chips wrap inside the content column, so
+// every chip is visible without a sideways scroll a mouse wheel can't reach.
 // ---------------------------------------------------------------------------
 
 export function FilterChips({
@@ -127,7 +127,7 @@ export function FilterChips({
       ref={rowRef}
       role="toolbar"
       aria-label="Filters"
-      className="relative -mx-4 flex items-center gap-2 overflow-x-auto px-4 scrollbar-none md:-mx-6 md:px-6 lg:-mx-8 lg:px-8"
+      className="relative -mx-4 flex items-center gap-2 overflow-x-auto px-4 scrollbar-none md:mx-0 md:flex-wrap md:gap-y-1 md:overflow-visible md:px-0"
     >
       <Chip onClick={onOpenFilters} aria-haspopup="dialog" aria-label={sheetCount ? `Filters, ${sheetCount} applied` : "Filters"}>
         <SlidersHorizontal strokeWidth={2.25} />
@@ -160,30 +160,28 @@ export function FilterChips({
 
       {filters.view === "active" && (
         <>
-          <Chip selected={filters.due === "soon"} onClick={() => toggleDue("soon")} count={dueCounts?.soon}>
+          <Chip selected={filters.due === "soon"} onClick={() => toggleDue("soon")} count={dueCounts ? dueCounts.soon : null}>
             <Clock
               strokeWidth={2.25}
               className={filters.due === "soon" ? undefined : "text-[hsl(28_100%_45%)] dark:text-ios-orange"}
             />
             Cancel Soon
           </Chip>
-          <Chip selected={filters.due === "overdue"} onClick={() => toggleDue("overdue")} count={dueCounts?.overdue}>
+          <Chip
+            selected={filters.due === "overdue"}
+            onClick={() => toggleDue("overdue")}
+            count={dueCounts ? dueCounts.overdue : null}
+          >
             <CircleAlert strokeWidth={2.25} className={filters.due === "overdue" ? undefined : "text-destructive"} />
             Overdue
           </Chip>
-          {(filters.review || (reviewCount ?? 0) > 0) && (
-            <Chip selected={filters.review} onClick={() => onChange({ review: !filters.review })} count={reviewCount}>
-              <History strokeWidth={2.25} className={filters.review ? undefined : "text-ios-indigo"} />
-              Needs Review
-            </Chip>
-          )}
           <Divider />
         </>
       )}
 
       {PO_STATUSES.map((s) => {
         const selected = filters.status.includes(s);
-        const count = statusCounts?.[s];
+        const count = statusCounts ? statusCounts[s] ?? 0 : null;
         return (
           <Chip key={s} selected={selected} onClick={() => toggleStatus(s)} count={count} muted={count === 0}>
             <StatusDot status={s} className={cn("h-2 w-2", selected && "bg-primary-foreground")} />
@@ -191,6 +189,17 @@ export function FilterChips({
           </Chip>
         );
       })}
+
+      {/* Last, so it appearing once the list loads never pushes the other chips aside. */}
+      {filters.view === "active" && (filters.review || (reviewCount ?? 0) > 0) && (
+        <>
+          <Divider />
+          <Chip selected={filters.review} onClick={() => onChange({ review: !filters.review })} count={reviewCount ?? null}>
+            <History strokeWidth={2.25} className={filters.review ? undefined : "text-ios-indigo"} />
+            Needs Review
+          </Chip>
+        </>
+      )}
     </div>
   );
 }

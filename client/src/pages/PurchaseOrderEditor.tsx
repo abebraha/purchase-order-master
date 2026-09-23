@@ -7,12 +7,13 @@
  * Loads what the form needs, then hands off to <PurchaseOrderForm/>.
  */
 import { useMemo, type ReactNode } from "react";
-import { Link, useRoute, useSearch } from "wouter";
+import { Link, useLocation, useRoute, useSearch } from "wouter";
 import { DEFAULT_SETTINGS } from "@shared/po";
 import { PageContainer, PageHeader, useHideMobileNav } from "@/components/layout/AppShell";
 import { ErrorState } from "@/components/common";
 import { PurchaseOrderForm } from "@/components/po/PurchaseOrderForm";
 import {
+  leaveEditor,
   valuesForCreate,
   valuesForDuplicate,
   valuesFromPurchaseOrder,
@@ -64,12 +65,13 @@ export default function PurchaseOrderEditor() {
   }, [formKey, ready]);
 
   const loadingTitle = mode === "edit" ? "Edit Purchase Order" : "New Purchase Order";
+  const backHref = loadId ? `/purchase-orders/${loadId}` : "/purchase-orders";
 
   if (isEditRoute && !editId) {
-    return <EditorError title="Purchase order not found" error="This link doesn't point to a purchase order." />;
+    return <EditorError navTitle={loadingTitle} title="Purchase order not found" error="This link doesn't point to a purchase order." />;
   }
   if (!isEditRoute && fromParam && !fromId) {
-    return <EditorError title="Can't duplicate this order" error="This link doesn't point to a purchase order." />;
+    return <EditorError navTitle={loadingTitle} title="Can't duplicate this order" error="This link doesn't point to a purchase order." />;
   }
   if (loadId && poQ.isError) {
     const err = poQ.error;
@@ -77,6 +79,7 @@ export default function PurchaseOrderEditor() {
       (err instanceof ApiError && err.status === 404) || (err instanceof Error && /not found|^404\b/i.test(err.message));
     return (
       <EditorError
+        navTitle={loadingTitle}
         title={notFound ? "Purchase order not found" : "Couldn't load this purchase order"}
         error={notFound ? "It may have been deleted." : poQ.error}
         onRetry={notFound ? undefined : () => void poQ.refetch()}
@@ -84,7 +87,7 @@ export default function PurchaseOrderEditor() {
     );
   }
   if (!ready || !defaultValues || !settings) {
-    return <EditorSkeleton title={loadingTitle} />;
+    return <EditorSkeleton title={loadingTitle} backHref={backHref} />;
   }
 
   return (
@@ -100,11 +103,21 @@ export default function PurchaseOrderEditor() {
   );
 }
 
-function EditorError({ title, error, onRetry }: { title: string; error?: unknown; onRetry?: () => void }) {
+function EditorError({
+  navTitle,
+  title,
+  error,
+  onRetry,
+}: {
+  navTitle: string;
+  title: string;
+  error?: unknown;
+  onRetry?: () => void;
+}) {
   return (
     <>
-      <PageHeader largeTitle={false} width="wide" title={title} backHref="/purchase-orders" backLabel="Orders" />
-      <PageContainer width="narrow">
+      <PageHeader largeTitle={false} width="default" title={navTitle} backHref="/purchase-orders" backLabel="Orders" />
+      <PageContainer width="default">
         <ErrorState
           title={title}
           error={error}
@@ -126,8 +139,9 @@ function EditorError({ title, error, onRetry }: { title: string; error?: unknown
   );
 }
 
-function EditorSkeleton({ title }: { title: string }) {
+function EditorSkeleton({ title, backHref }: { title: string; backHref: string }) {
   useHideMobileNav();
+  const [, navigate] = useLocation();
   const field = (key: string, className = "") => (
     <div key={key} className={`space-y-2 ${className}`}>
       <Skeleton className="h-3 w-24 rounded-md" />
@@ -144,15 +158,20 @@ function EditorSkeleton({ title }: { title: string }) {
     <>
       <PageHeader
         largeTitle={false}
-        width="wide"
+        width="default"
         title={title}
         leading={
-          <Button asChild variant="plain" className="-ml-1 h-11 px-2 text-[17px] font-normal md:h-9 md:text-[15px]">
-            <Link href="/purchase-orders">Cancel</Link>
+          <Button
+            type="button"
+            variant="plain"
+            className="-ml-1 h-11 px-2 text-[17px] font-normal md:h-9 md:text-[15px]"
+            onClick={() => leaveEditor(backHref, (href) => navigate(href, { replace: true }))}
+          >
+            Cancel
           </Button>
         }
       />
-      <PageContainer width="narrow">
+      <PageContainer width="default">
         <div className="space-y-7 md:space-y-8" aria-busy="true" aria-label="Loading purchase order">
           {group("customer", <Skeleton className="h-11 rounded-[10px] md:h-9" />)}
           {group(

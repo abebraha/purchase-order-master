@@ -133,7 +133,7 @@ export function MonthlyChart({ data }: { data: MonthBucket[] }) {
           onKeyDown={onKeyDown}
           onFocus={() => setActive((a) => a ?? currentIndex)}
           onBlur={() => setActive(null)}
-          className="relative mt-5 select-none rounded-lg outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
+          className="relative mt-5 select-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{ paddingRight: AXIS_LANE }}
         >
           {/* Plot */}
@@ -204,7 +204,7 @@ export function MonthlyChart({ data }: { data: MonthBucket[] }) {
             {selected && active !== null && (
               <div
                 data-chart-callout
-                className="pointer-events-none absolute bottom-[calc(100%+6px)] z-10 rounded-xl bg-secondary px-3 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[hsl(240_2%_20%)]"
+                className="pointer-events-none absolute bottom-[calc(100%+6px)] z-10 rounded-xl bg-secondary px-3 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:bg-accent"
                 style={{
                   width: CALLOUT_W,
                   left: `clamp(0px, calc(${center(active) * 100}% - ${CALLOUT_W / 2}px), calc(100% + ${AXIS_LANE}px - ${CALLOUT_W}px))`,

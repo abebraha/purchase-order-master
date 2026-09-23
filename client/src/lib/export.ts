@@ -1,7 +1,11 @@
-import { PO_STATUS_LABELS, type PurchaseOrder, type StyleRecord } from "@shared/po";
+import { PO_STATUS_LABELS, lineTotal, type PurchaseOrder, type StyleRecord } from "@shared/po";
 import { downloadCsv, formatDate, todayInputValue } from "@/lib/format";
 
 const d = (iso: string | null | undefined) => formatDate(iso, "yyyy-MM-dd");
+
+/** The exact unit price as a plain number with at least 2 decimals: 7.25 → "7.25", 10 → "10.00", 0.125 → "0.125". */
+const unitPrice = (n: number) =>
+  (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 10, useGrouping: false });
 
 /** One row per purchase order. */
 export function exportOrdersCsv(orders: PurchaseOrder[], filename = `purchase-orders-${todayInputValue()}.csv`) {
@@ -54,8 +58,9 @@ export function exportLineItemsCsv(orders: PurchaseOrder[], filename = `po-line-
         item.color,
         item.description,
         item.quantity,
-        item.price.toFixed(2),
-        (item.quantity * item.price).toFixed(2),
+        unitPrice(item.price),
+        // Rounded the same way as the PO document and PDF.
+        lineTotal(item).toFixed(2),
       ]);
     }
   }

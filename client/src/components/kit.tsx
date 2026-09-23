@@ -180,7 +180,7 @@ const rowBase =
   "after:absolute after:bottom-0 after:right-0 after:left-[var(--row-inset)] after:h-px after:bg-border/80 last:after:hidden";
 
 const rowInteractive =
-  "cursor-pointer transition-colors duration-100 hover:bg-accent/60 active:bg-accent focus-visible:bg-accent";
+  "cursor-pointer transition-colors duration-100 hover:bg-accent/60 active:bg-accent focus-visible:bg-accent focus-visible:shadow-[inset_0_0_0_2px_hsl(var(--ring))]";
 
 export type ListRowProps = ListRowBaseProps & {
   href?: string;
@@ -325,7 +325,7 @@ export function SegmentedControl<T extends string>({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "relative z-10 flex min-w-0 items-center justify-center gap-1.5 rounded-[7px] px-2 text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+              "relative z-10 flex min-w-0 items-center justify-center gap-1.5 rounded-[7px] px-2 text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
               active ? "font-semibold text-foreground" : "font-medium text-foreground/80 hover:text-foreground",
             )}
           >
@@ -365,7 +365,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-10 w-full rounded-[10px] border-0 bg-ios-gray/[0.12] pl-8 pr-9 text-[17px] text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus-visible:ring-4 focus-visible:ring-primary/15 md:h-9 md:text-sm dark:bg-ios-gray/[0.24] [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-10 w-full rounded-[10px] border-0 bg-ios-gray/[0.12] pl-8 pr-9 text-[17px] text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70 md:h-9 md:text-sm dark:bg-ios-gray/[0.24] [&::-webkit-search-cancel-button]:appearance-none"
         {...props}
       />
       {value && (
@@ -399,7 +399,7 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section className={className}>
+    <section className={cn("min-w-0", className)}>
       <div className="mb-2.5 flex items-baseline justify-between gap-3 px-1">
         <h2 className="text-title-3">{title}</h2>
         {action}

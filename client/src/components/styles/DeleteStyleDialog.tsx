@@ -25,11 +25,11 @@ export function DeleteStyleDialog({
         color: deleted.color ?? "",
         description: deleted.description ?? "",
       });
-      toast({ title: "Style Restored", description: `${deleted.styleNumber} is back in your catalog.` });
+      toast({ title: "Style restored", description: `${deleted.styleNumber} is back in your catalog.` });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Couldn't Restore Style",
+        title: "Couldn't restore style",
         description: error instanceof Error ? error.message : "Please add it again.",
       });
     }
@@ -42,7 +42,7 @@ export function DeleteStyleDialog({
       await remove.mutateAsync(deleted.id);
       onOpenChange(false);
       toast({
-        title: "Style Deleted",
+        title: "Style deleted",
         description: `${deleted.styleNumber} was removed from your catalog.`,
         action: (
           <ToastAction
@@ -57,7 +57,7 @@ export function DeleteStyleDialog({
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Couldn't Delete Style",
+        title: "Couldn't delete style",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     }

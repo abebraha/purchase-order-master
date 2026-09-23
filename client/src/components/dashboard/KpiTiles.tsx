@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, formatNumber, pluralize } from "@/lib/format";
 import { DUE_SOON_DAYS, ordersHref } from "@/lib/filters";
 import { cn } from "@/lib/utils";
-import { figureMoney, figureNumber, OPEN_STATUSES, type DashboardSummary } from "./metrics";
+import { figureMoney, figureNumber, OPEN_STATUSES, ORDERED_STATUSES, type DashboardSummary } from "./metrics";
 
 // ---------------------------------------------------------------------------
 // Tile
@@ -21,7 +21,8 @@ interface KpiTileProps {
   value: string;
   /** Exact value, shown on hover and read by screen readers. */
   exactValue?: string;
-  detail: ReactNode;
+  /** One line of context. Pass several parts to show them as "a · b". */
+  detail: ReactNode | ReactNode[];
 }
 
 /**
@@ -29,18 +30,23 @@ interface KpiTileProps {
  * colored icon + label, one big number, one line of context.
  */
 export function KpiTile({ href, icon, color, label, value, exactValue, detail }: KpiTileProps) {
+  const parts = (Array.isArray(detail) ? detail : [detail]).filter((part) => part != null && part !== false);
   return (
     <Link
       href={href}
       className={cn(
         "group flex min-w-0 flex-col rounded-2xl bg-card p-3.5 outline-none md:p-4",
         "transition-[background-color,transform] duration-150 active:scale-[0.98]",
-        "hover:bg-accent/60 dark:hover:bg-accent/80 focus-visible:ring-4 focus-visible:ring-ring/30",
+        "hover:bg-accent/60 dark:hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
-      <div className="flex min-w-0 items-center gap-2">
+      {/* min-h-8 fits a two-line label, so values in a row line up whether or not a label wraps. */}
+      <div className="flex min-h-8 min-w-0 items-center gap-2">
         <IconTile icon={icon} color={color} />
-        <span className="truncate text-[13px] font-semibold text-muted-foreground md:text-sm">{label}</span>
+        {/* Wraps to a second line on very narrow phones instead of cutting the label off. */}
+        <span className="line-clamp-2 min-w-0 text-[13px] font-semibold leading-4 text-muted-foreground md:text-sm md:leading-5">
+          {label}
+        </span>
       </div>
       <div
         className="mt-3 truncate text-[28px] font-semibold leading-8 tracking-[-0.02em] md:mt-4 md:text-[30px] md:leading-9"
@@ -49,8 +55,24 @@ export function KpiTile({ href, icon, color, label, value, exactValue, detail }:
         {exactValue && <span className="sr-only">{exactValue}</span>}
         <span aria-hidden={exactValue ? true : undefined}>{value}</span>
       </div>
-      <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[13px] leading-[18px] text-muted-foreground">
-        {detail}
+      {/*
+        Detail parts are separated by a centered "·". Each part reserves the separator's width on
+        its left and the row is shifted left by the same amount inside an overflow-hidden box, so
+        a part that wraps to the start of a line has its "·" clipped instead of dangling.
+      */}
+      <div className="mt-1 min-w-0 overflow-hidden text-[13px] leading-[18px] text-muted-foreground">
+        <div className="-ml-3 flex flex-wrap items-baseline">
+          {parts.map((part, i) => (
+            <span key={i} className="relative min-w-0 pl-3">
+              {i > 0 && (
+                <span aria-hidden className="absolute left-0 w-3 text-center">
+                  ·
+                </span>
+              )}
+              {part}
+            </span>
+          ))}
+        </div>
       </div>
     </Link>
   );
@@ -61,7 +83,7 @@ export function KpiTilesSkeleton() {
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4" aria-hidden>
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="rounded-2xl bg-card p-3.5 md:p-4">
-          <div className="flex items-center gap-2">
+          <div className="flex min-h-8 items-center gap-2">
             <Skeleton className="h-[29px] w-[29px] rounded-[7px]" />
             <Skeleton className="h-3.5 w-20 rounded-full" />
           </div>
@@ -81,14 +103,14 @@ function Delta({ change, compareLabel }: { change: number | null; compareLabel: 
   if (change === null) return null;
   const pct = Math.round(Math.abs(change) * 100);
   if (pct === 0) {
-    return <span title={`Same as ${compareLabel}`}>· Even</span>;
+    return <span title={`Same as ${compareLabel}`}>Even</span>;
   }
   const up = change > 0;
   const text = `${up ? "Up" : "Down"} ${pct.toLocaleString("en-US")}% compared with ${compareLabel}`;
   return (
     <span className="whitespace-nowrap" title={text}>
       <span aria-hidden>
-        · {up ? "▲" : "▼"} {pct.toLocaleString("en-US")}%
+        {up ? "▲" : "▼"} {pct.toLocaleString("en-US")}%
       </span>
       <span className="sr-only">, {text}</span>
     </span>
@@ -109,7 +131,14 @@ export function KpiTiles({ summary }: { summary: DashboardSummary }) {
         label="Open Orders"
         value={figureMoney(open.value)}
         exactValue={formatMoney(open.value)}
-        detail={pluralize(open.count, "order")}
+        // Counts Draft through Shipped, so say what it means: it's more than the "Open" status alone.
+        // On narrow phones it wraps only as "15 orders / to receive".
+        detail={
+          <span>
+            <span className="whitespace-nowrap">{pluralize(open.count, "order")}</span>{" "}
+            <span className="whitespace-nowrap">to receive</span>
+          </span>
+        }
       />
       <KpiTile
         href={ordersHref({ status: OPEN_STATUSES })}
@@ -121,18 +150,17 @@ export function KpiTiles({ summary }: { summary: DashboardSummary }) {
         detail={pluralize(open.styles, "style")}
       />
       <KpiTile
-        href={ordersHref({ from: month.from, to: month.to })}
+        // Cancelled orders don't count toward the month, so the list leaves them out too.
+        href={ordersHref({ from: month.from, to: month.to, status: ORDERED_STATUSES })}
         icon={CalendarDays}
         color="teal"
         label="This Month"
         value={figureMoney(month.value)}
         exactValue={formatMoney(month.value)}
-        detail={
-          <>
-            <span className="whitespace-nowrap">{pluralize(month.count, "order")}</span>
-            <Delta change={month.change} compareLabel={month.compareLabel} />
-          </>
-        }
+        detail={[
+          <span className="whitespace-nowrap">{pluralize(month.count, "order")}</span>,
+          month.change !== null && <Delta change={month.change} compareLabel={month.compareLabel} />,
+        ]}
       />
       <KpiTile
         href={cancelHref}

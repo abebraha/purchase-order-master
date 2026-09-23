@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Archive,
   ArchiveRestore,
+  Check,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -14,16 +15,13 @@ import {
   FileText,
   Pencil,
 } from "lucide-react";
-import { PO_STATUSES, PO_STATUS_LABELS, type POStatus, type PurchaseOrder } from "@shared/po";
+import { PO_STATUSES, PO_STATUS_LABELS, type PurchaseOrder } from "@shared/po";
 import { StatusBadge, StatusDot } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -42,31 +40,42 @@ import { cancelDateHint, formatShipWindow } from "./utils";
 // Columns
 // ---------------------------------------------------------------------------
 
+/**
+ * Which widths show a column. The content area next to the 260px sidebar is only ≈700px at
+ * 1024 and ≈956px at 1280, so columns come in as room allows:
+ *   - below xl (1280): Ship To folds under the PO # as a second line; no Type / Units.
+ *   - xl (1280–1439):  Ship To gets its own flexible column (≥ 240px).
+ *   - 1440 and up:     Type and Units join (Ship To keeps ≥ 210px).
+ */
+type Tier = "xl" | "wide";
+
+const TIER_COL: Record<Tier, string> = { xl: "hidden xl:table-column", wide: "hidden min-[1440px]:table-column" };
+const TIER_CELL: Record<Tier, string> = { xl: "hidden xl:table-cell", wide: "hidden min-[1440px]:table-cell" };
+
 interface Column {
   key: string;
   label: string;
   /** Width classes for the <col>; omit for a flexible column. */
   width?: string;
   align?: "right";
-  /**
-   * Only shown at xl and up. Between md and xl the content area is narrow (≈700px next to the
-   * sidebar), so Type/Units are dropped and Ship To folds under the PO # as a second line.
-   */
-  wideOnly?: boolean;
+  /** Only shown from this width up (see Tier); always shown when omitted. */
+  tier?: Tier;
   /** Sort chosen by clicking the header; "date" toggles newest/oldest. */
   sort?: OrderSort | "date";
 }
 
 const COLUMNS: Column[] = [
+  // Flexible below xl, where it also carries the folded Ship To line.
   { key: "po", label: "PO #", width: "xl:w-[124px]", sort: "po" },
-  { key: "status", label: "Status", width: "w-[128px] xl:w-[136px]" },
-  { key: "type", label: "Type", width: "w-[104px]", wideOnly: true },
-  { key: "ordered", label: "Ordered", width: "w-[126px]", sort: "date" },
-  { key: "ship", label: "Ship Window", width: "w-[172px] xl:w-[180px]", sort: "cancel" },
-  { key: "shipTo", label: "Ship To", wideOnly: true },
-  { key: "units", label: "Units", width: "w-[92px]", align: "right", wideOnly: true },
-  { key: "total", label: "Total", width: "w-[116px] xl:w-[128px]", align: "right", sort: "amount" },
-  { key: "menu", label: "", width: "w-[52px]" },
+  // Fixed widths fit their longest usual content ("In Production", "Regular PO", "Sep 23, 2026").
+  { key: "status", label: "Status", width: "w-[136px]" },
+  { key: "type", label: "Type", width: "w-[108px]", tier: "wide" },
+  { key: "ordered", label: "Ordered", width: "w-[120px]", sort: "date" },
+  { key: "ship", label: "Ship Window", width: "w-[160px] xl:w-[176px]", sort: "cancel" },
+  { key: "shipTo", label: "Ship To", tier: "xl" },
+  { key: "units", label: "Units", width: "w-[80px]", align: "right", tier: "wide" },
+  { key: "total", label: "Total", width: "w-[116px]", align: "right", sort: "amount" },
+  { key: "menu", label: "", width: "w-[44px]" },
 ];
 
 const STICKY_TOP = "top-[calc(52px+env(safe-area-inset-top))]";
@@ -79,7 +88,7 @@ function Colgroup() {
   return (
     <colgroup>
       {COLUMNS.map((c) => (
-        <col key={c.key} className={cn(c.width, c.wideOnly && "hidden xl:table-column")} />
+        <col key={c.key} className={cn(c.width, c.tier && TIER_COL[c.tier])} />
       ))}
     </colgroup>
   );
@@ -106,7 +115,7 @@ function HeaderRow({ filters, onSort }: { filters?: OrderFilters; onSort?: (sort
               STICKY_TOP,
               cellPad(i, COLUMNS.length),
               c.align === "right" ? "text-right" : "text-left",
-              c.wideOnly && "hidden xl:table-cell",
+              c.tier && TIER_CELL[c.tier],
             )}
           >
             {c.key === "menu" ? (
@@ -185,6 +194,7 @@ const stop = (e: SyntheticEvent) => e.stopPropagation();
 function RowMenu({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
   return (
     <DropdownMenu modal={false}>
+      {/* Same row "•••" button as the Styles table. */}
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -218,22 +228,29 @@ function RowMenu({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
             <CircleDot />
             Change Status
           </DropdownMenuSubTrigger>
-          {/* Portaled: the menu's blur/overflow would otherwise clip the submenu. */}
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent className="w-48 p-1.5">
-              <DropdownMenuRadioGroup
-                value={po.status}
-                onValueChange={(v) => actions.changeStatus(po, v as POStatus)}
-              >
-                {PO_STATUSES.map((s) => (
-                  <DropdownMenuRadioItem key={s} value={s} className="gap-2">
-                    <StatusDot status={s} />
-                    {PO_STATUS_LABELS[s]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
+          {/* Same rows as the Status menu on the order's page: check for the current status, dot trailing. */}
+          <DropdownMenuSubContent className="min-w-[13.5rem] p-1.5">
+            {PO_STATUSES.map((s) => {
+              const current = s === po.status;
+              return (
+                <DropdownMenuItem
+                  key={s}
+                  role="menuitemradio"
+                  aria-checked={current}
+                  onSelect={() => actions.changeStatus(po, s)}
+                  className={cn(current && "font-semibold")}
+                >
+                  <Check
+                    className={cn("!h-4 !w-4 text-primary", current ? "opacity-100" : "opacity-0")}
+                    strokeWidth={2.75}
+                    aria-hidden
+                  />
+                  <span className="flex-1">{PO_STATUS_LABELS[s]}</span>
+                  <StatusDot status={s} className="h-2.5 w-2.5" />
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
         {po.archivedAt ? (
@@ -256,6 +273,7 @@ function Row({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
   const [, navigate] = useLocation();
   const href = `/purchase-orders/${po.id}`;
   const shipTo = firstLine(po.shipTo);
+  const total = formatMoney(po.totalAmount);
 
   const onClick = (e: MouseEvent<HTMLTableRowElement>) => {
     if (window.getSelection()?.toString()) return; // let people select text
@@ -287,7 +305,10 @@ function Row({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
         >
           {po.poNumber || "—"}
         </Link>
-        <span className="mt-0.5 block truncate text-[12px] leading-4 text-muted-foreground xl:hidden">
+        <span
+          className="mt-0.5 block truncate text-[12px] leading-4 text-muted-foreground xl:hidden"
+          title={po.shipTo || undefined}
+        >
           {shipTo || "No ship-to address"}
         </span>
       </>
@@ -301,8 +322,12 @@ function Row({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
         {shipTo || "No ship-to address"}
       </span>
     ),
-    units: <span className="tabular-nums text-muted-foreground">{formatNumber(po.totalQuantity)}</span>,
-    total: <span className="font-medium tabular-nums">{formatMoney(po.totalAmount)}</span>,
+    units: <span className="block truncate tabular-nums text-muted-foreground">{formatNumber(po.totalQuantity)}</span>,
+    total: (
+      <span className="block truncate font-medium tabular-nums" title={total.length > 12 ? total : undefined}>
+        {total}
+      </span>
+    ),
     menu: (
       <div onClick={stop} onKeyDown={stop} className="flex justify-end">
         <RowMenu po={po} actions={actions} />
@@ -328,7 +353,7 @@ function Row({ po, actions }: { po: PurchaseOrder; actions: POActions }) {
             i === 0 && "after:left-5",
             cellPad(i, COLUMNS.length),
             c.align === "right" && "text-right",
-            c.wideOnly && "hidden xl:table-cell",
+            c.tier && TIER_CELL[c.tier],
           )}
         >
           {cells[c.key]}
@@ -409,7 +434,7 @@ export function OrdersTableSkeleton() {
                   className={cn(
                     "h-[52px]",
                     cellPad(i, COLUMNS.length),
-                    c.wideOnly && "hidden xl:table-cell",
+                    c.tier && TIER_CELL[c.tier],
                     r < 7 && "shadow-[inset_0_-0.5px_0_hsl(var(--border))]",
                   )}
                 >

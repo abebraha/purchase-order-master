@@ -167,6 +167,29 @@ export interface StyleImportResult {
   message: string;
 }
 
+/**
+ * A style number typed on purchase-order lines that isn't in the styles catalog ("library")
+ * yet. Built from every saved PO, archived ones included; the POs themselves are never changed.
+ */
+export interface StyleSuggestion {
+  /** The most common spelling as typed on the orders. */
+  styleNumber: string;
+  /** Most common non-empty color on its lines ("" if none). */
+  color: string;
+  /** Most common non-empty description on its lines ("" if none). */
+  description: string;
+  /** Every distinct color it was ordered in, most used first. */
+  colors: string[];
+  /** PO lines that use it. */
+  lines: number;
+  /** Distinct purchase orders that use it. */
+  orders: number;
+  /** Units ordered, not counting cancelled orders. */
+  units: number;
+  /** Latest order date (ISO). */
+  lastOrdered: string;
+}
+
 export interface AddressSuggestion {
   value: string;
   count: number;
@@ -287,8 +310,11 @@ export const PODraftSchema = POFormObject.extend({
 export type POItemFormValues = z.infer<typeof POItemFormSchema>;
 export type POFormValues = z.infer<typeof POFormSchema>;
 
+/** Longest style number the styles library accepts (adding, editing and importing alike). */
+export const STYLE_NUMBER_MAX_LENGTH = 64;
+
 export const StyleFormSchema = z.object({
-  styleNumber: z.string().trim().min(1, "Style number is required").max(64, "Too long"),
+  styleNumber: z.string().trim().min(1, "Style number is required").max(STYLE_NUMBER_MAX_LENGTH, "Too long"),
   color: z.string().trim(),
   description: z.string().trim(),
 });

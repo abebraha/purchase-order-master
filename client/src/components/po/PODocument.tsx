@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { PackageOpen } from "lucide-react";
 import { DEFAULT_SETTINGS, PO_STATUS_LABELS, lineTotal, type AppSettings } from "@shared/po";
 import type { PODocumentData } from "@/lib/document";
-import { formatDate, formatMoney, formatNumber, pluralize } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatUnitPrice, pluralize } from "@/lib/format";
 import { STATUS_STYLES } from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 
@@ -187,6 +187,23 @@ type Item = PODocumentData["items"][number];
 const TH = "whitespace-nowrap bg-muted px-3 py-2 text-[11px] font-semibold uppercase leading-4 tracking-[0.06em] text-muted-foreground first:rounded-l-lg last:rounded-r-lg";
 const TD = "px-3 py-3 align-top hairline-b";
 
+/**
+ * Text for an auto-sized table column that keeps ordinary words on one line ("SL3100-BLK", "Ivory")
+ * but still wraps a very long unbroken value instead of widening the sheet. The visible text may
+ * break anywhere, so it doesn't set the column's minimum width; the invisible zero-height strut
+ * does: its longest word, capped at `cap` (container units, so the caps shrink with the sheet).
+ */
+function CellText({ cap, children }: { cap: string; children: ReactNode }) {
+  return (
+    <>
+      <span aria-hidden className="invisible block h-0 select-none overflow-hidden break-words" style={{ maxWidth: cap }}>
+        {children}
+      </span>
+      <span className="[overflow-wrap:anywhere]">{children}</span>
+    </>
+  );
+}
+
 function Items({ items }: { items: Item[] }) {
   return (
     <>
@@ -205,13 +222,17 @@ function Items({ items }: { items: Item[] }) {
         <tbody>
           {items.map((item, i) => (
             <tr key={i}>
-              <td className={cn(TD, "whitespace-nowrap font-semibold")}>{orDash(item.styleNumber)}</td>
-              <td className={cn(TD, "min-w-[5.5rem] break-words")}>{orDash(item.color)}</td>
-              <td className={cn(TD, "min-w-[9rem] whitespace-pre-line break-words text-foreground/80")}>
+              <td className={cn(TD, "font-semibold")}>
+                <CellText cap="16cqi">{orDash(item.styleNumber)}</CellText>
+              </td>
+              <td className={TD}>
+                <CellText cap="12cqi">{orDash(item.color)}</CellText>
+              </td>
+              <td className={cn(TD, "min-w-[14cqi] whitespace-pre-line text-foreground/80 [overflow-wrap:anywhere]")}>
                 {orDash(item.description)}
               </td>
               <td className={cn(TD, "whitespace-nowrap text-right tabular-nums")}>{formatNumber(item.quantity)}</td>
-              <td className={cn(TD, "whitespace-nowrap text-right tabular-nums")}>{formatMoney(item.price)}</td>
+              <td className={cn(TD, "whitespace-nowrap text-right tabular-nums")}>{formatUnitPrice(item.price)}</td>
               <td className={cn(TD, "whitespace-nowrap text-right font-medium tabular-nums")}>
                 {formatMoney(lineTotal(item))}
               </td>
@@ -237,7 +258,7 @@ function Items({ items }: { items: Item[] }) {
                 </p>
                 <div className="mt-1.5 flex items-baseline justify-between gap-3 tabular-nums">
                   <span className="text-[13px] text-muted-foreground">
-                    {formatNumber(item.quantity)} × {formatMoney(item.price)}
+                    {formatNumber(item.quantity)} × {formatUnitPrice(item.price)}
                   </span>
                   <span className="text-[15px] font-medium">{formatMoney(lineTotal(item))}</span>
                 </div>

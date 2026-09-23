@@ -16,6 +16,7 @@ import {
   PO_STATUSES,
   PO_STATUS_LABELS,
   REVISION_ACTION_LABELS,
+  STYLE_NUMBER_MAX_LENGTH,
   SettingsSchema,
   computeTotals,
   describeChanges,
@@ -31,6 +32,7 @@ import {
   type PurchaseOrder,
   type RevisionAction,
   type StyleRecord,
+  type StyleSuggestion,
 } from "../shared/po";
 
 /** Encode a value as a real JSONB object (drizzle 0.29 + postgres-js would otherwise store a JSON string). */
@@ -243,14 +245,39 @@ export async function poNumberExists(poNumber: string, excludeId?: number): Prom
   return rows.some((r) => r.id !== excludeId);
 }
 
+/** PO numbers of deleted POs (kept so they can be recovered without a number clash). */
+async function deletedPoNumbers(): Promise<Set<string>> {
+  const rows = await db
+    .select({ poNumber: poRevisions.poNumber })
+    .from(poRevisions)
+    .where(
+      and(
+        eq(poRevisions.action, "deleted"),
+        sql`NOT EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = "po_revisions"."po_id")`,
+      ),
+    );
+  return new Set(rows.map((r) => r.poNumber.trim().toLowerCase()));
+}
+
 export async function suggestNextPoNumber(increment: (last: string) => string): Promise<string> {
-  const [latest] = await db
+  // Continue the highest plain-number PO (e.g. 3013 → 3014) so one oddly named PO ("SAMPLE-A")
+  // doesn't derail the sequence; if there are none, continue the most recent PO's pattern.
+  const [highestNumeric] = await db
     .select({ poNumber: purchaseOrders.poNumber })
     .from(purchaseOrders)
-    .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+    .where(sql`${purchaseOrders.poNumber} ~ '^[0-9]{1,15}$'`)
+    .orderBy(sql`${purchaseOrders.poNumber}::bigint desc`)
     .limit(1);
+  const [latest] = highestNumeric
+    ? [highestNumeric]
+    : await db
+        .select({ poNumber: purchaseOrders.poNumber })
+        .from(purchaseOrders)
+        .orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id))
+        .limit(1);
+  const deleted = await deletedPoNumbers();
   let candidate = increment(latest?.poNumber ?? "1000");
-  for (let i = 0; i < 500 && (await poNumberExists(candidate)); i++) {
+  for (let i = 0; i < 500 && (deleted.has(candidate.toLowerCase()) || (await poNumberExists(candidate))); i++) {
     candidate = increment(candidate);
   }
   return candidate;
@@ -392,9 +419,11 @@ export async function updatePurchaseOrder(
       await tx.delete(poItems).where(eq(poItems.poId, id));
       if (input.items.length) await tx.insert(poItems).values(itemValues(id, input.items));
       const after = await requirePurchaseOrder(id, tx);
+      // A save that changed nothing (e.g. the same form submitted from two tabs) adds no history.
+      if (after.version === before.version) return after;
       const changes = describeChanges(before, after);
-      await recordRevision(tx, after, "updated", changes.length ? changes.join("; ") : "Saved with no changes");
-      return after;
+      await recordRevision(tx, after, "updated", changes.length ? changes.join("; ") : "Updated");
+      return { ...after, needsReview: false }; // the entry just recorded counts as a review
     });
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -421,7 +450,7 @@ export async function setPurchaseOrderStatus(
       .where(eq(purchaseOrders.id, id));
     const after = await requirePurchaseOrder(id, tx);
     await recordRevision(tx, after, "status", describeChanges(before, after).join("; "));
-    return after;
+    return { ...after, needsReview: false };
   });
 }
 
@@ -535,15 +564,18 @@ export async function recoverDeletedPurchaseOrder(revisionId: number): Promise<P
   if (!rev || rev.action !== "deleted") throw new HttpError(404, "Deleted purchase order not found");
   const snap = rev.snapshot as PurchaseOrder;
   if (await getPurchaseOrder(rev.poId)) throw new HttpError(409, "This purchase order already exists.");
-  if (await poNumberExists(snap.poNumber)) {
-    throw new HttpError(409, `PO #${snap.poNumber} is already used by another purchase order.`);
+  // If its number was reused meanwhile, recover it as "<number>-R" (then -R2, -R3…) rather than failing.
+  let poNumber = snap.poNumber;
+  for (let n = 1; n < 100 && (await poNumberExists(poNumber)); n++) {
+    poNumber = `${snap.poNumber}-R${n === 1 ? "" : n}`;
   }
+  const renumbered = poNumber !== snap.poNumber;
   return db.transaction(async (tx) => {
     const date = (v: string | null | undefined, fallback: Date) => (v ? new Date(v) : fallback);
     const now = new Date();
     await tx.insert(purchaseOrders).values({
       id: rev.poId,
-      poNumber: snap.poNumber,
+      poNumber,
       poType: snap.poType,
       status: normalizeStatus(snap.status),
       terms: snap.terms,
@@ -575,8 +607,15 @@ export async function recoverDeletedPurchaseOrder(revisionId: number): Promise<P
       );
     }
     const po = await requirePurchaseOrder(rev.poId, tx);
-    await recordRevision(tx, po, "recovered", "Recovered from a deleted snapshot");
-    return po;
+    await recordRevision(
+      tx,
+      po,
+      "recovered",
+      renumbered
+        ? `Recovered from a deleted snapshot as PO #${poNumber} (PO #${snap.poNumber} is now used by another order)`
+        : "Recovered from a deleted snapshot",
+    );
+    return { ...po, needsReview: false };
   });
 }
 
@@ -688,26 +727,40 @@ export async function exportBackup() {
 // ---------------------------------------------------------------------------
 
 export async function listStyles(): Promise<StyleRecord[]> {
-  const rows = await db
-    .select({
-      id: styles.id,
-      styleNumber: styles.styleNumber,
-      color: styles.color,
-      description: styles.description,
-      createdAt: styles.createdAt,
-      updatedAt: styles.updatedAt,
-      // Explicit aliases: drizzle leaves columns unqualified here, which would bind to po_items.
-      usageCount: sql<number>`(
-        SELECT count(*)::int FROM po_items pi
-        WHERE pi.style_id = "styles"."id"
-           OR lower(trim(coalesce(pi.manual_style_number, ''))) = lower("styles"."style_number")
-      )`,
-    })
-    .from(styles)
-    .orderBy(asc(styles.styleNumber));
+  const [rows, usage] = await Promise.all([
+    db
+      .select({
+        id: styles.id,
+        styleNumber: styles.styleNumber,
+        color: styles.color,
+        description: styles.description,
+        createdAt: styles.createdAt,
+        updatedAt: styles.updatedAt,
+      })
+      .from(styles)
+      .orderBy(asc(styles.styleNumber)),
+    // PO lines per style, by link or by typed style number (a line matching both counts once).
+    // Two hash joins, not a subquery per style: that re-scanned every line for every style and
+    // took many seconds once a catalog had a few thousand styles.
+    db.execute(sql`
+      SELECT style_id, count(*)::int AS uses FROM (
+        SELECT s.id AS style_id, pi.id AS item_id
+          FROM styles s JOIN po_items pi ON pi.style_id = s.id
+        UNION
+        SELECT s.id, pi.id
+          FROM styles s JOIN po_items pi
+            ON lower(trim(coalesce(pi.manual_style_number, ''))) = lower(s.style_number)
+      ) matches
+      GROUP BY style_id
+    `),
+  ]);
+  const usesById = new Map<number, number>();
+  for (const row of usage as unknown as Array<{ style_id: number; uses: number }>) {
+    usesById.set(Number(row.style_id), Number(row.uses) || 0);
+  }
   return rows.map((r) => ({
     ...r,
-    usageCount: Number(r.usageCount) || 0,
+    usageCount: usesById.get(r.id) ?? 0,
     createdAt: toISO(r.createdAt)!,
     updatedAt: toISO(r.updatedAt)!,
   }));
@@ -780,10 +833,16 @@ export async function deleteStyle(id: number) {
   });
 }
 
+/**
+ * Adds many styles at once, skipping blanks, repeats and styles already in the catalog (ignoring
+ * case). Style numbers longer than a single style may have are left out too (counted in `tooLong`,
+ * which is part of `skipped`), so every entry can still be edited afterwards.
+ */
 export async function bulkCreateStyles(
   records: Array<{ styleNumber: string; color: string; description: string }>,
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ created: number; skipped: number; tooLong: number }> {
   const seen = new Set<string>();
+  let tooLong = 0;
   const unique = records
     .map((r) => ({
       styleNumber: r.styleNumber.trim(),
@@ -794,6 +853,10 @@ export async function bulkCreateStyles(
       const k = r.styleNumber.toLowerCase();
       if (!r.styleNumber || seen.has(k)) return false;
       seen.add(k);
+      if (r.styleNumber.length > STYLE_NUMBER_MAX_LENGTH) {
+        tooLong++;
+        return false;
+      }
       return true;
     });
   const existing = await db.select({ styleNumber: styles.styleNumber }).from(styles);
@@ -809,7 +872,133 @@ export async function bulkCreateStyles(
       .returning({ id: styles.id });
     created += inserted.length;
   }
-  return { created, skipped: records.length - created };
+  return { created, skipped: records.length - created, tooLong };
+}
+
+/**
+ * Counts text case-insensitively ("Black" and "BLACK" are one color) and remembers each
+ * group's most common spelling. Ties go to the most recently ordered.
+ */
+type Usage = { count: number; last: number };
+const byUse = (a: Usage, b: Usage) => b.count - a.count || b.last - a.last;
+
+class TextTally {
+  private groups = new Map<string, Usage & { spellings: Map<string, Usage> }>();
+
+  add(text: string | null | undefined, time: number) {
+    const value = (text ?? "").trim();
+    if (!value) return;
+    const key = value.toLowerCase();
+    let group = this.groups.get(key);
+    if (!group) {
+      group = { count: 0, last: time, spellings: new Map() };
+      this.groups.set(key, group);
+    }
+    group.count++;
+    group.last = Math.max(group.last, time);
+    const spelling = group.spellings.get(value) ?? { count: 0, last: time };
+    spelling.count++;
+    spelling.last = Math.max(spelling.last, time);
+    group.spellings.set(value, spelling);
+  }
+
+  /** Every distinct value (its most common spelling), most used first. */
+  values(): string[] {
+    return Array.from(this.groups.values())
+      .sort(byUse)
+      .map((g) => Array.from(g.spellings.entries()).sort((a, b) => byUse(a[1], b[1]))[0][0]);
+  }
+
+  /** The most common value, or "" when nothing was added. */
+  top(): string {
+    return this.values()[0] ?? "";
+  }
+}
+
+/**
+ * Style numbers typed on PO lines that aren't in the styles catalog (older versions of the app
+ * never saved them there). Covers every saved PO, archived ones included — permanently deleted
+ * POs are gone from these tables. Matching is trimmed and case-insensitive, like the catalog.
+ * Lines linked to a style that still exists are skipped: that style is in the catalog, even if it
+ * was renamed after the order was placed. So are style numbers too long for the catalog to hold
+ * (someone typed a description into the style # field): they couldn't be saved or edited there.
+ *
+ * Read-only: purchase orders and their lines are never modified here.
+ */
+export async function listStyleSuggestions(): Promise<StyleSuggestion[]> {
+  const [lines, catalog] = await Promise.all([
+    db
+      .select({
+        poId: poItems.poId,
+        manualStyleNumber: poItems.manualStyleNumber,
+        color: poItems.color,
+        description: poItems.description,
+        quantity: poItems.quantity,
+        status: purchaseOrders.status,
+        orderDate: purchaseOrders.orderDate,
+      })
+      .from(poItems)
+      .innerJoin(purchaseOrders, eq(poItems.poId, purchaseOrders.id))
+      .leftJoin(styles, eq(poItems.styleId, styles.id))
+      .where(and(isNull(styles.id), sql`coalesce(trim(${poItems.manualStyleNumber}), '') <> ''`))
+      .orderBy(asc(poItems.id)),
+    db.select({ styleNumber: styles.styleNumber }).from(styles),
+  ]);
+  const inCatalog = new Set(catalog.map((s) => s.styleNumber.trim().toLowerCase()));
+
+  const found = new Map<
+    string,
+    { numbers: TextTally; colors: TextTally; descriptions: TextTally; lines: number; orders: Set<number>; units: number; last: number }
+  >();
+  for (const line of lines) {
+    const styleNumber = (line.manualStyleNumber ?? "").trim();
+    const key = styleNumber.toLowerCase();
+    if (!styleNumber || styleNumber.length > STYLE_NUMBER_MAX_LENGTH || line.poId === null || inCatalog.has(key)) {
+      continue;
+    }
+    const time = line.orderDate ? new Date(line.orderDate).getTime() || 0 : 0;
+    let entry = found.get(key);
+    if (!entry) {
+      entry = {
+        numbers: new TextTally(),
+        colors: new TextTally(),
+        descriptions: new TextTally(),
+        lines: 0,
+        orders: new Set(),
+        units: 0,
+        last: time,
+      };
+      found.set(key, entry);
+    }
+    entry.numbers.add(styleNumber, time);
+    entry.colors.add(line.color, time);
+    entry.descriptions.add(line.description, time);
+    entry.lines++;
+    entry.orders.add(line.poId);
+    if (normalizeStatus(line.status) !== "cancelled") entry.units += Number(line.quantity) || 0;
+    entry.last = Math.max(entry.last, time);
+  }
+
+  return Array.from(found.values())
+    .map((e) => {
+      const colors = e.colors.values();
+      return {
+        styleNumber: e.numbers.top(),
+        color: colors[0] ?? "",
+        description: e.descriptions.top(),
+        colors,
+        lines: e.lines,
+        orders: e.orders.size,
+        units: e.units,
+        lastOrdered: toISO(new Date(e.last))!,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.units - a.units ||
+        b.lastOrdered.localeCompare(a.lastOrdered) ||
+        a.styleNumber.localeCompare(b.styleNumber, "en", { numeric: true }),
+    );
 }
 
 // ---------------------------------------------------------------------------

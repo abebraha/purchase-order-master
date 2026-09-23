@@ -8,7 +8,7 @@ import type { jsPDF } from "jspdf";
 import type { AppSettings } from "@shared/po";
 import { lineTotal } from "@shared/po";
 import type { PODocumentData } from "@/lib/document";
-import { formatDate, formatMoney, formatNumber } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatUnitPrice } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // Design tokens (points; US Letter is 612 × 792)
@@ -514,7 +514,8 @@ export async function buildPOPdf(data: PODocumentData, settings: AppSettings): P
       orDash(sanitizePdfText(item.color).trim()),
       orDash(cleanBlock(item.description)),
       formatNumber(qty),
-      formatMoney(price),
+      // Unit prices keep sub-cent precision ($0.125) so quantity × price matches the amount.
+      formatUnitPrice(price),
       formatMoney(lineTotal({ quantity: qty, price })),
     ];
   });

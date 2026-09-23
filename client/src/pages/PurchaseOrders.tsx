@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { Archive, ChevronDown, Ellipsis, FileSpreadsheet, FileText, Plus, SearchX, Share } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  FileSpreadsheet,
+  FileText,
+  Plus,
+  SearchX,
+  Share,
+} from "lucide-react";
 import { PO_STATUSES, type POStatus, type PurchaseOrder } from "@shared/po";
 import { PageContainer, PageHeader } from "@/components/layout/AppShell";
-import { SearchField, SegmentedControl } from "@/components/kit";
+import { IconTile, ListRow, ListSection, SearchField, SegmentedControl } from "@/components/kit";
 import { EmptyState, ErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,8 +26,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FilterChips } from "@/components/po-list/FilterChips";
-import { ReviewOlderOrders } from "@/components/po/ReviewOlderOrders";
 import { FiltersSheet } from "@/components/po-list/FiltersSheet";
+import { ReviewShownOrders } from "@/components/po-list/ReviewShownOrders";
 import { OrdersList, OrdersListSkeleton } from "@/components/po-list/OrdersList";
 import { OrdersTable, OrdersTableSkeleton } from "@/components/po-list/OrdersTable";
 import { usePOActions } from "@/components/po-list/usePOActions";
@@ -32,6 +43,7 @@ import {
   matchesFilters,
   ordersHref,
   parseOrderFilters,
+  searchTerms,
   type DueFilter,
   type OrderFilters,
 } from "@/lib/filters";
@@ -55,8 +67,9 @@ function useOrderFilters() {
   const [, navigate] = useLocation();
   const filters = useMemo(() => {
     const f = parseOrderFilters(search);
-    // "Cancel soon" / "overdue" only apply to the active list.
-    return f.view === "archived" && f.due ? { ...f, due: "" as const } : f;
+    // "Cancel Soon", "Overdue" and "Needs Review" only apply to the active list (their chips are
+    // hidden on Archived), so a stale link like ?view=archived&review=1 can't hide orders silently.
+    return f.view === "archived" && (f.due || f.review) ? { ...f, due: "" as const, review: false } : f;
   }, [search]);
 
   const latest = useRef(filters);
@@ -94,7 +107,7 @@ function MoreMenu({ orders }: { orders: PurchaseOrder[] }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="plain" size="icon" aria-label="More">
+        <Button variant="plain" size="icon" aria-label="More Actions">
           <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-primary/20">
             <Ellipsis className="!h-5 !w-5" strokeWidth={2.25} />
           </span>
@@ -106,11 +119,11 @@ function MoreMenu({ orders }: { orders: PurchaseOrder[] }) {
         </DropdownMenuLabel>
         <DropdownMenuItem disabled={!orders.length} onSelect={() => exportCsv("orders")}>
           <FileText />
-          Export Orders CSV
+          Export Orders as CSV
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!orders.length} onSelect={() => exportCsv("lines")}>
           <FileSpreadsheet />
-          Export Line Items CSV
+          Export Line Items as CSV
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -135,7 +148,7 @@ function ExportMenu({ orders }: { orders: PurchaseOrder[] }) {
         <DropdownMenuItem disabled={!orders.length} onSelect={() => exportCsv("orders")} className="items-start">
           <FileText className="mt-0.5" />
           <div>
-            <div>Orders CSV</div>
+            <div>Orders as CSV</div>
             <div className="text-xs text-muted-foreground">One row per purchase order</div>
           </div>
         </DropdownMenuItem>
@@ -143,7 +156,7 @@ function ExportMenu({ orders }: { orders: PurchaseOrder[] }) {
         <DropdownMenuItem disabled={!orders.length} onSelect={() => exportCsv("lines")} className="items-start">
           <FileSpreadsheet className="mt-0.5" />
           <div>
-            <div>Line Items CSV</div>
+            <div>Line Items as CSV</div>
             <div className="text-xs text-muted-foreground">One row per style, great for pivot tables</div>
           </div>
         </DropdownMenuItem>
@@ -152,11 +165,87 @@ function ExportMenu({ orders }: { orders: PurchaseOrder[] }) {
   );
 }
 
-function noMatchText(f: OrderFilters): string {
-  const narrowed = Boolean(f.status.length || f.due || f.type || f.from || f.to);
-  if (f.q && narrowed) return `Nothing matches “${f.q}” with these filters. Try a different search or clear your filters.`;
-  if (f.q) return `Nothing matches “${f.q}”. Check the spelling or try a PO #, style or store name.`;
+/** Filters other than the search text that narrow the list. */
+function isNarrowed(f: OrderFilters): boolean {
+  return Boolean(f.status.length || f.due || f.review || f.type || f.from || f.to);
+}
+
+/**
+ * Empty-state copy. `otherMatches` counts matches in the other view (Active ↔ Archived), or is
+ * undefined while that list is still loading, so we never claim it was searched when it wasn't.
+ */
+function noMatchText(f: OrderFilters, otherMatches: number | undefined): string {
+  const here = f.view === "archived" ? "archived" : "active";
+  const there = f.view === "archived" ? "active" : "archived";
+  if (f.q && otherMatches) {
+    return `No ${here} orders match “${f.q}”, but ${pluralize(otherMatches, `${there} order`)} ${otherMatches === 1 ? "does" : "do"}.`;
+  }
+  if (f.q && isNarrowed(f)) return `Nothing matches “${f.q}” with these filters. Try a different search or clear your filters.`;
+  if (f.q) {
+    const scope = otherMatches === 0 ? "active or archived orders" : `${here} orders`;
+    return `No ${scope} match “${f.q}”. Try part of a PO #, style or store name.`;
+  }
   return "No orders match these filters. Try removing one, or clear them all.";
+}
+
+// ---------------------------------------------------------------------------
+// "Show More" count, remembered per list URL so Back from a PO restores the same rows (and the
+// scroll position can be restored). sessionStorage: per tab, and it may be unavailable.
+// ---------------------------------------------------------------------------
+
+const limitKey = (search: string) => `po-list-limit:${search}`;
+
+function readLimit(search: string): number {
+  try {
+    const n = Number(window.sessionStorage.getItem(limitKey(search)));
+    return Number.isFinite(n) && n > PAGE_SIZE ? n : PAGE_SIZE;
+  } catch {
+    return PAGE_SIZE;
+  }
+}
+
+function saveLimit(search: string, n: number) {
+  try {
+    window.sessionStorage.setItem(limitKey(search), String(n));
+  } catch {
+    // Private mode / blocked storage: the list just starts at the first page again.
+  }
+}
+
+function useShowMore(search: string) {
+  const [state, setState] = useState(() => ({ search, limit: readLimit(search) }));
+  // A new URL (filters changed, or Back/Forward to another list) uses that URL's remembered count.
+  const limit = state.search === search ? state.limit : readLimit(search);
+  const showMore = () => {
+    const next = limit + PAGE_SIZE;
+    saveLimit(search, next);
+    setState({ search, limit: next });
+  };
+  return { limit, showMore };
+}
+
+// ---------------------------------------------------------------------------
+// "2 matching in Archived  Show ›": the search also matches orders in the other view
+// ---------------------------------------------------------------------------
+
+function OtherViewMatches({ count, view, onShow }: { count: number; view: View; onShow: () => void }) {
+  const label = view === "archived" ? "Archived" : "Active";
+  return (
+    <ListSection className="mt-6 md:mt-4">
+      <ListRow
+        onClick={onShow}
+        leading={<IconTile icon={view === "archived" ? Archive : FileText} color="gray" />}
+        title={`${count.toLocaleString("en-US")} matching in ${label}`}
+        accessory={
+          <span className="flex shrink-0 items-center gap-0.5 text-[17px] text-primary md:text-[15px]">
+            Show
+            <ChevronRight className="-mr-1 h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden />
+          </span>
+        }
+        aria-label={`Show ${pluralize(count, "matching order")} in ${label}`}
+      />
+    </ListSection>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -218,14 +307,26 @@ export default function PurchaseOrders() {
   }, []);
 
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  useEffect(() => setLimit(PAGE_SIZE), [search]);
+  const { limit, showMore } = useShowMore(search);
 
   // --- Derived data ----------------------------------------------------------
   const filtered = useMemo(
     () => (list ? displayOrder(applyOrderFilters(list, filters), filters) : []),
     [list, filters],
   );
+
+  // Search matches in the other view (Active ↔ Archived), so a search never dead-ends in
+  // "no results" while the order sits one tap away. undefined while that list loads.
+  const otherView: View = filters.view === "archived" ? "active" : "archived";
+  const otherList = filters.view === "archived" ? activeQuery.data : archivedQuery.data;
+  const otherMatches = useMemo(() => {
+    if (!searchTerms(filters.q).length) return 0;
+    if (!otherList) return undefined;
+    // Switching to Archived drops the active-only filters (due / review), so count without them.
+    const f: OrderFilters =
+      otherView === "archived" ? { ...filters, view: otherView, due: "", review: false } : { ...filters, view: otherView };
+    return otherList.reduce((n, po) => (matchesFilters(po, f) ? n + 1 : n), 0);
+  }, [otherList, otherView, filters]);
 
   const statusCounts = useMemo(() => {
     if (!list) return undefined;
@@ -250,7 +351,10 @@ export default function PurchaseOrders() {
     const f: OrderFilters = { ...filters, review: false };
     return list.filter((po) => po.needsReview && matchesFilters(po, f)).length;
   }, [list, filters]);
-  const toReview = useMemo(() => (list ?? []).filter((po) => po.needsReview), [list]);
+  // The bulk "Mark as Received" acts on exactly the older orders listed, never on ones hidden by
+  // the search or other filters.
+  const toReview = useMemo(() => filtered.filter((po) => po.needsReview), [filtered]);
+  const allToReview = useMemo(() => (list ?? []).filter((po) => po.needsReview).length, [list]);
 
   const totals = useMemo(
     () =>
@@ -270,7 +374,14 @@ export default function PurchaseOrders() {
     pushed.current = "";
     update(clearedFilters(filters));
   };
-  const setView = (view: View) => update({ view, due: view === "archived" ? "" : filters.due });
+  const clearSearch = () => {
+    setSearchText("");
+    pushed.current = "";
+    update({ q: "" });
+  };
+  // The search and the other filters carry over; the active-only ones (their chips are hidden on
+  // Archived) are dropped so nothing filters the archived list invisibly.
+  const setView = (view: View) => update(view === "archived" ? { view, due: "", review: false } : { view });
 
   const archived = filters.view === "archived";
   const subtitle = list
@@ -321,12 +432,29 @@ export default function PurchaseOrders() {
       />
     );
   } else if (filtered.length === 0) {
+    const onlySearch = Boolean(filters.q) && !isNarrowed(filters);
+    const clearButton = (
+      <Button variant={otherMatches ? "plain" : "tinted"} onClick={onlySearch ? clearSearch : clearAll}>
+        {onlySearch ? "Clear Search" : "Clear Filters"}
+      </Button>
+    );
     body = (
       <EmptyState
         icon={SearchX}
         title="No matching orders"
-        description={noMatchText(filters)}
-        action={<Button onClick={clearAll}>Clear Filters</Button>}
+        description={noMatchText(filters, otherMatches)}
+        action={
+          otherMatches ? (
+            <>
+              <Button onClick={() => setView(otherView)}>
+                {otherView === "archived" ? "Show Archived" : "Show Active"}
+              </Button>
+              {clearButton}
+            </>
+          ) : (
+            clearButton
+          )
+        }
       />
     );
   } else if (isDesktop) {
@@ -336,22 +464,18 @@ export default function PurchaseOrders() {
         filters={filters}
         onSort={(sort) => update({ sort })}
         limit={limit}
-        onShowMore={() => setLimit((n) => n + PAGE_SIZE)}
+        onShowMore={showMore}
         actions={actions}
       />
     );
   } else {
-    body = (
-      <OrdersList
-        orders={filtered}
-        filters={filters}
-        limit={limit}
-        onShowMore={() => setLimit((n) => n + PAGE_SIZE)}
-      />
-    );
+    body = <OrdersList orders={filtered} filters={filters} limit={limit} onShowMore={showMore} />;
   }
 
-  const showFilters = !list || list.length > 0;
+  // While loading, the chips and summary line render as placeholders so nothing jumps when the
+  // list arrives; with a load error or no orders at all there is nothing to filter.
+  const showFilters = list ? list.length > 0 : !query.isError;
+  const showSummary = showFilters;
 
   return (
     <>
@@ -361,6 +485,7 @@ export default function PurchaseOrders() {
         width="wide"
         actions={
           <>
+            {/* Phone: [•••][+]. The primary action sits last, at the far right. */}
             <div className="flex items-center md:hidden">
               <MoreMenu orders={filtered} />
               <Button variant="plain" size="icon" asChild>
@@ -369,9 +494,10 @@ export default function PurchaseOrders() {
                 </Link>
               </Button>
             </div>
+            {/* Tablet / desktop: [Export ▾][New Purchase Order]; on lg+ the sidebar has New PO. */}
             <div className="hidden items-center gap-2 md:flex">
               <ExportMenu orders={filtered} />
-              <Button size="sm" asChild>
+              <Button size="sm" asChild className="lg:hidden">
                 <Link href="/purchase-orders/new">
                   <Plus strokeWidth={2.5} />
                   New Purchase Order
@@ -442,15 +568,21 @@ export default function PurchaseOrders() {
 
         {filters.review && filters.view === "active" && toReview.length > 0 && (
           <div className="mt-3">
-            <ReviewOlderOrders orders={toReview} showReviewLink={false} />
+            <ReviewShownOrders orders={toReview} scoped={toReview.length < allToReview} />
           </div>
         )}
 
-        {list && list.length > 0 && (
+        {/* Rendered (as a placeholder) while loading too, so the list doesn't jump down when it arrives. */}
+        {showSummary && (
           <div className="mb-2 mt-1 flex min-h-8 items-center justify-between gap-3 px-1 md:mt-2 md:px-1">
-            <p className="min-w-0 truncate text-[13px] tabular-nums text-muted-foreground" aria-live="polite">
-              {pluralize(filtered.length, "order")} · {formatNumber(totals.units)} units · {formatMoney(totals.amount)}
-            </p>
+            {list ? (
+              <p className="min-w-0 truncate text-[13px] tabular-nums text-muted-foreground" aria-live="polite">
+                {pluralize(filtered.length, "order")} · {formatNumber(totals.units)} {totals.units === 1 ? "unit" : "units"} ·{" "}
+                {formatMoney(totals.amount)}
+              </p>
+            ) : (
+              <Skeleton className="h-3.5 w-48 rounded-md" />
+            )}
             {filtering && (
               <Button
                 variant="plain"
@@ -464,7 +596,11 @@ export default function PurchaseOrders() {
           </div>
         )}
 
-        <div className={list && list.length > 0 ? undefined : "mt-4"}>{body}</div>
+        <div className={showSummary ? undefined : "mt-4"}>{body}</div>
+
+        {filtered.length > 0 && otherMatches ? (
+          <OtherViewMatches count={otherMatches} view={otherView} onShow={() => setView(otherView)} />
+        ) : null}
       </PageContainer>
 
       <FiltersSheet

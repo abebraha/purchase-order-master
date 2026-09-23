@@ -179,7 +179,7 @@ function SavedAddressesDialog({
           </ListSection>
         ) : (
           <div className="px-4 py-10 text-center">
-            <p className="text-[17px] font-semibold md:text-[15px]">{query ? "No Matches" : "No Saved Addresses Yet"}</p>
+            <p className="text-[17px] font-semibold md:text-[15px]">{query ? "No matches" : "No saved addresses yet"}</p>
             <p className="mt-1 text-[15px] leading-snug text-muted-foreground md:text-sm">
               {query
                 ? "Try a different company, street or city."

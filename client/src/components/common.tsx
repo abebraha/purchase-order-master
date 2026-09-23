@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { AlertTriangle, Loader2, type LucideIcon } from "lucide-react";
 import {
   AlertDialog,
@@ -31,6 +31,27 @@ import { useIsDesktop } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
+// Focus return: these dialogs are opened from state (no Radix trigger), so remember what had
+// focus when they opened and put focus back there when they close.
+// ---------------------------------------------------------------------------
+
+function useReturnFocus(open: boolean, fallback?: RefObject<HTMLElement | null>) {
+  const opener = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const active = document.activeElement as HTMLElement | null;
+    opener.current =
+      active && active !== document.body && !active.closest("[role=menu],[role=dialog],[role=alertdialog]") ? active : null;
+  }, [open]);
+  return (e: Event) => {
+    const target = opener.current?.isConnected ? opener.current : fallback?.current;
+    if (!target) return; // let Radix do its default
+    e.preventDefault();
+    target.focus({ preventScroll: true });
+  };
+}
+
+// ---------------------------------------------------------------------------
 // ResponsiveDialog — centered dialog on desktop, bottom sheet (drawer) on mobile
 // ---------------------------------------------------------------------------
 
@@ -44,6 +65,8 @@ interface ResponsiveDialogProps {
   footer?: ReactNode;
   /** Extra classes for the desktop dialog (e.g. "sm:max-w-2xl"). */
   className?: string;
+  /** Where focus goes on close if the element that opened the dialog is gone (e.g. a menu item). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function ResponsiveDialog({
@@ -54,13 +77,15 @@ export function ResponsiveDialog({
   children,
   footer,
   className,
+  returnFocusRef,
 }: ResponsiveDialogProps) {
   const isDesktop = useIsDesktop();
+  const restoreFocus = useReturnFocus(open, returnFocusRef);
 
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={cn("max-h-[90dvh] overflow-y-auto sm:max-w-lg", className)}>
+        <DialogContent className={cn("max-h-[90dvh] overflow-y-auto sm:max-w-lg", className)} onCloseAutoFocus={restoreFocus}>
           <DialogHeader className="pr-8">
             <DialogTitle className="text-[19px] font-semibold tracking-tight">{title}</DialogTitle>
             {description && <DialogDescription>{description}</DialogDescription>}
@@ -74,7 +99,7 @@ export function ResponsiveDialog({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[94dvh]">
+      <DrawerContent className="max-h-[94dvh]" onCloseAutoFocus={restoreFocus}>
         <DrawerHeader className="px-5 pb-3 pt-3 text-center">
           <DrawerTitle className="text-[17px] font-semibold">{title}</DrawerTitle>
           {description && <DrawerDescription className="text-[13px]">{description}</DrawerDescription>}
@@ -105,6 +130,8 @@ interface ConfirmDialogProps {
   pending?: boolean;
   onConfirm: () => void;
   children?: ReactNode;
+  /** Where focus goes on close if the element that opened the dialog is gone (e.g. a menu item). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function ConfirmDialog({
@@ -118,10 +145,12 @@ export function ConfirmDialog({
   pending,
   onConfirm,
   children,
+  returnFocusRef,
 }: ConfirmDialogProps) {
+  const restoreFocus = useReturnFocus(open, returnFocusRef);
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent onCloseAutoFocus={restoreFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}

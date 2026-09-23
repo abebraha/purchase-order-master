@@ -1,12 +1,23 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent } from "react";
-import { ClipboardPaste, Download, FileSpreadsheet, FileUp, Loader2, X } from "lucide-react";
-import type { StyleImportResult, StyleRecord } from "@shared/po";
+import {
+  Check,
+  ClipboardList,
+  ClipboardPaste,
+  Download,
+  FileSpreadsheet,
+  FileUp,
+  Loader2,
+  RotateCw,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import type { StyleImportResult, StyleRecord, StyleSuggestion } from "@shared/po";
 import { ResponsiveDialog } from "@/components/common";
-import { IconTile, ListRow, ListSection, SegmentedControl } from "@/components/kit";
+import { IconTile, ListRow, ListSection, SegmentedControl, type SegmentOption } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useBulkCreateStyles, useImportStylesCsv } from "@/lib/api";
+import { useBulkCreateStyles, useImportStylesCsv, useStyleSuggestions } from "@/lib/api";
 import { pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -14,14 +25,34 @@ import {
   downloadStyleTemplate,
   formatFileSize,
   parsePastedStyles,
+  parseStylesCsv,
   styleDetails,
+  type ParsedPaste,
 } from "./styleUtils";
+import { styleKey, suggestionDetails, suggestionToStyle, suggestionUsage, useAddToLibrary } from "./suggestions";
 
-type Mode = "file" | "paste";
+export type ImportMode = "file" | "paste" | "orders";
 
-const MODES = [
-  { value: "file" as const, label: "Upload CSV", icon: FileUp },
-  { value: "paste" as const, label: "Paste from Excel", icon: ClipboardPaste },
+/**
+ * Three segments share a phone-width sheet, so phones get short labels without icons (and the
+ * narrowest phones a shorter one still). VoiceOver always reads the full name.
+ */
+function modeLabel(Icon: LucideIcon, long: string, short = long, tiny = short) {
+  return (
+    <span className="flex min-w-0 items-center justify-center gap-1.5">
+      <Icon className="hidden h-3.5 w-3.5 shrink-0 sm:block" aria-hidden />
+      <span className="sr-only">{long}</span>
+      <span aria-hidden className="hidden truncate max-[359px]:inline">{tiny}</span>
+      <span aria-hidden className="truncate max-[359px]:hidden sm:hidden">{short}</span>
+      <span aria-hidden className="hidden truncate sm:inline">{long}</span>
+    </span>
+  );
+}
+
+const MODES: Array<SegmentOption<ImportMode>> = [
+  { value: "file", label: modeLabel(FileUp, "Upload CSV") },
+  { value: "paste", label: modeLabel(ClipboardPaste, "Paste from Excel", "Paste") },
+  { value: "orders", label: modeLabel(ClipboardList, "From Orders", "From Orders", "Orders") },
 ];
 
 const PREVIEW_ROWS = 5;
@@ -32,46 +63,85 @@ const COLUMNS: Array<{ name: string; required?: boolean }> = [
   { name: "description" },
 ];
 
-/** Import styles from a CSV file or from cells pasted out of Excel / Google Sheets. */
+/**
+ * Import styles from a CSV file, from cells pasted out of Excel / Google Sheets, or from the
+ * style numbers typed on purchase orders that aren't in the library yet.
+ */
 export function ImportStylesDialog({
   open,
   onOpenChange,
   styles,
+  initialMode = "file",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Current catalog — used to show how many pasted styles are already there. */
   styles: StyleRecord[] | undefined;
+  /** The tab shown each time the sheet opens. */
+  initialMode?: ImportMode;
 }) {
   const { toast } = useToast();
   const pasteId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importCsv = useImportStylesCsv();
   const bulkCreate = useBulkCreateStyles();
-  const pending = importCsv.isPending || bulkCreate.isPending;
+  const addToLibrary = useAddToLibrary();
+  const suggestions = useStyleSuggestions();
+  const pending = importCsv.isPending || bulkCreate.isPending || addToLibrary.isPending;
 
-  const [mode, setMode] = useState<Mode>("file");
+  const [mode, setMode] = useState<ImportMode>(initialMode);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [text, setText] = useState("");
+  /** What the picked CSV file holds (read in the browser); null while reading or if it can't be read. */
+  const [fileStyles, setFileStyles] = useState<ParsedPaste | null>(null);
+  /** "From Orders": everything starts selected, so remember what was unticked. */
+  const [unticked, setUnticked] = useState<Set<string>>(() => new Set());
 
   // Start clean each time the sheet opens.
   useEffect(() => {
     if (!open) return;
+    setMode(initialMode);
     setFile(null);
     setFileError(null);
     setDragging(false);
     setText("");
-  }, [open]);
+    setUnticked(new Set());
+  }, [open, initialMode]);
+
+  // Read the picked file so the sheet can say how many styles are new before anything is imported.
+  useEffect(() => {
+    setFileStyles(null);
+    if (!file || fileError) return;
+    let cancelled = false;
+    file
+      .text()
+      .then((content) => {
+        if (!cancelled) setFileStyles(parseStylesCsv(content));
+      })
+      .catch(() => {
+        // Unreadable here: the server still checks the file when it's imported.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file, fileError]);
 
   const parsed = useMemo(() => parsePastedStyles(text), [text]);
   const existingKeys = useMemo(
     () => new Set((styles ?? []).map((s) => s.styleNumber.trim().toLowerCase())),
     [styles],
   );
-  const alreadyInCatalog = parsed.styles.filter((s) => existingKeys.has(s.styleNumber.toLowerCase())).length;
-  const newCount = parsed.styles.length - alreadyInCatalog;
+  const inCatalog = (style: { styleNumber: string }) => existingKeys.has(style.styleNumber.trim().toLowerCase());
+
+  // The rows this import would send: pasted cells, or the picked file once it has been read.
+  const incoming = mode === "paste" ? parsed : file && !fileError ? fileStyles : null;
+  const found = incoming?.styles.length ?? 0;
+  const alreadyInCatalog = incoming ? incoming.styles.filter(inCatalog).length : 0;
+  const newCount = found - alreadyInCatalog;
+  const fileHasNoStyles = mode === "file" && Boolean(fileStyles) && found === 0;
+  const fileProblem = fileError ?? (fileHasNoStyles ? "No style numbers found. Make sure the CSV has a “style_number” column." : null);
 
   const pickFile = (picked: File | null | undefined) => {
     if (!picked) return;
@@ -93,13 +163,33 @@ export function ImportStylesDialog({
 
   const finish = (result: StyleImportResult) => {
     toast({
-      title: result.created > 0 ? "Import Complete" : "No New Styles",
+      title: result.created > 0 ? "Import complete" : "No new styles",
       description: result.message,
     });
     onOpenChange(false);
   };
 
+  const fromOrders = suggestions.data ?? [];
+  const chosen = fromOrders.filter((s) => !unticked.has(styleKey(s.styleNumber)));
+
+  // `pending` only disables the button on a later render, so a quick double tap could import twice.
+  const submitting = useRef(false);
   const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
+    try {
+      await save();
+    } finally {
+      submitting.current = false;
+    }
+  };
+
+  const save = async () => {
+    if (mode === "orders") {
+      if (chosen.length === 0) return;
+      if (await addToLibrary.add(chosen.map((s) => suggestionToStyle(s)))) onOpenChange(false);
+      return;
+    }
     if (mode === "file") {
       if (!file || fileError) return;
       try {
@@ -110,23 +200,37 @@ export function ImportStylesDialog({
       }
       return;
     }
-    if (!parsed.styles.length) return;
+    if (newCount === 0) return;
     try {
       finish(await bulkCreate.mutateAsync(parsed.styles));
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Couldn't Import Styles",
+        title: "Couldn't import styles",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     }
   };
 
-  const canSubmit = mode === "file" ? Boolean(file) && !fileError : parsed.styles.length > 0;
+  // Label the button with what will actually be added; styles already in the library are skipped.
+  const canSubmit =
+    mode === "orders"
+      ? chosen.length > 0
+      : mode === "file"
+        ? Boolean(file) && !fileError && (!fileStyles || newCount > 0)
+        : newCount > 0;
   const submitLabel =
-    mode === "paste" && parsed.styles.length > 0
-      ? `Import ${pluralize(parsed.styles.length, "Style", "Styles")}`
-      : "Import";
+    mode === "orders"
+      ? chosen.length > 0
+        ? `Add ${pluralize(chosen.length, "Style")}`
+        : "Add Styles"
+      : !incoming || found === 0
+        ? "Import"
+        : newCount > 0
+          ? `Import ${pluralize(newCount, "New Style", "New Styles")}`
+          : "Nothing New to Import";
+  // "From Orders" with nothing to add (all set, or the orders couldn't be read): no dead primary.
+  const ordersSettled = mode === "orders" && fromOrders.length === 0 && (Boolean(suggestions.data) || Boolean(suggestions.error));
 
   return (
     <ResponsiveDialog
@@ -135,7 +239,7 @@ export function ImportStylesDialog({
         if (!pending) onOpenChange(next);
       }}
       title="Import Styles"
-      description="Add many styles at once. Styles already in your catalog are skipped."
+      description="Add many styles at once. Styles already in your library are skipped."
       className="sm:max-w-xl"
       footer={
         <>
@@ -146,19 +250,32 @@ export function ImportStylesDialog({
             onClick={() => onOpenChange(false)}
             className="order-last md:order-none"
           >
-            Cancel
+            {ordersSettled && suggestions.data ? "Done" : "Cancel"}
           </Button>
-          <Button type="button" onClick={submit} disabled={!canSubmit || pending}>
-            {pending && <Loader2 className="animate-spin" />}
-            {submitLabel}
-          </Button>
+          {!ordersSettled && (
+            <Button type="button" onClick={submit} disabled={!canSubmit || pending}>
+              {pending && <Loader2 className="animate-spin" />}
+              {submitLabel}
+            </Button>
+          )}
         </>
       }
     >
-      <div className="space-y-5 pt-1">
+      {/* min-w-0: a long row truncates instead of widening the dialog (it's a grid item). */}
+      <div className="min-w-0 space-y-5 pt-1">
         <SegmentedControl aria-label="Import method" value={mode} onChange={setMode} options={MODES} />
 
-        {mode === "file" ? (
+        {mode === "orders" ? (
+          <FromOrders
+            suggestions={suggestions.data}
+            error={suggestions.error}
+            retrying={suggestions.isFetching}
+            onRetry={() => suggestions.refetch()}
+            unticked={unticked}
+            onUntickedChange={setUnticked}
+            disabled={pending}
+          />
+        ) : mode === "file" ? (
           <div className="space-y-4">
             <label
               onDragOver={(e) => {
@@ -171,7 +288,7 @@ export function ImportStylesDialog({
                 "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-4 py-6 text-center outline-none transition-colors focus-within:ring-4 focus-within:ring-primary/20 active:scale-[0.99]",
                 dragging
                   ? "border-primary bg-primary/5"
-                  : fileError
+                  : fileProblem
                     ? "border-destructive/40 bg-destructive/5"
                     : "border-border bg-muted/60 hover:bg-accent/60",
               )}
@@ -185,7 +302,7 @@ export function ImportStylesDialog({
                 className="sr-only"
                 onChange={(e) => pickFile(e.target.files?.[0])}
               />
-              <IconTile icon={FileSpreadsheet} color={file && !fileError ? "green" : "blue"} variant="tinted" size="lg" />
+              <IconTile icon={FileSpreadsheet} color={file && !fileProblem ? "green" : "blue"} variant="tinted" size="lg" />
               {file ? (
                 <div className="min-w-0 max-w-full">
                   <div className="truncate text-[17px] font-semibold md:text-[15px]">{file.name}</div>
@@ -211,10 +328,16 @@ export function ImportStylesDialog({
                 </Button>
               </div>
             )}
-            {fileError && (
+            {fileProblem ? (
               <p role="alert" className="text-center text-[13px] font-medium leading-snug text-destructive">
-                {fileError}
+                {fileProblem}
               </p>
+            ) : (
+              found > 0 && (
+                <p role="status" className="text-center text-[13px] leading-snug text-muted-foreground">
+                  {importSummary(found, alreadyInCatalog, incoming?.repeated ?? 0)}
+                </p>
+              )
             )}
 
             <div className="space-y-2.5 rounded-xl bg-muted px-3.5 py-3">
@@ -249,7 +372,7 @@ export function ImportStylesDialog({
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label htmlFor={pasteId} className="block text-[13px] font-medium text-muted-foreground">
-                Pasted cells
+                Pasted Cells
               </label>
               <Textarea
                 id={pasteId}
@@ -273,19 +396,32 @@ export function ImportStylesDialog({
               (parsed.styles.length > 0 ? (
                 <ListSection
                   header={`${pluralize(parsed.styles.length, "style")} found`}
-                  footer={previewFooter(parsed.styles.length, alreadyInCatalog, newCount, parsed.skippedHeader, parsed.repeated)}
+                  headerAction={
+                    alreadyInCatalog > 0 && (
+                      <span className="text-[13px] tabular-nums text-muted-foreground">
+                        {newCount > 0 ? `${newCount} new · ${alreadyInCatalog} in library` : "All in library"}
+                      </span>
+                    )
+                  }
+                  footer={[
+                    alreadyInCatalog > 0 && importSummary(found, alreadyInCatalog, 0),
+                    parsed.skippedHeader && "Header row skipped.",
+                    parsed.repeated > 0 && `${pluralize(parsed.repeated, "repeated row")} ignored.`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   className="[&>div.bg-card]:bg-muted"
                 >
                   {parsed.styles.slice(0, PREVIEW_ROWS).map((s, i) => {
-                    const inCatalog = existingKeys.has(s.styleNumber.toLowerCase());
+                    const existing = inCatalog(s);
                     return (
                       <ListRow key={`${s.styleNumber}-${i}`}>
                         <div className="flex items-baseline gap-2.5 text-[15px] md:text-sm">
-                          <span className={cn("shrink-0 font-medium", inCatalog && "text-muted-foreground")}>{s.styleNumber}</span>
+                          <span className={cn("shrink-0 font-medium", existing && "text-muted-foreground")}>{s.styleNumber}</span>
                           <span className="min-w-0 flex-1 truncate text-muted-foreground">
                             {styleDetails(s) || "No details"}
                           </span>
-                          {inCatalog && <span className="shrink-0 text-[13px] text-muted-foreground md:text-xs">In catalog</span>}
+                          {existing && <span className="shrink-0 text-[13px] text-muted-foreground md:text-xs">In library</span>}
                         </div>
                       </ListRow>
                     );
@@ -310,18 +446,142 @@ export function ImportStylesDialog({
   );
 }
 
-function previewFooter(total: number, existing: number, fresh: number, skippedHeader: boolean, repeated: number): string {
-  const parts: string[] = [];
-  if (existing > 0) {
-    parts.push(
-      fresh > 0
-        ? `${pluralize(fresh, "new style")} will be added; ${existing} already in your catalog will be skipped.`
-        : total === 1
-          ? "It's already in your catalog."
-          : `All ${total} are already in your catalog.`,
-    );
-  }
-  if (skippedHeader) parts.push("Header row skipped.");
+/** "3 new styles will be added; 1 already in your library will be skipped." */
+function importSummary(found: number, existing: number, repeated: number): string {
+  const fresh = found - existing;
+  const parts = [
+    existing === 0
+      ? `${pluralize(fresh, "new style")} will be added.`
+      : fresh === 0
+        ? found === 1
+          ? "It's already in your library."
+          : `All ${found} are already in your library.`
+        : `${pluralize(fresh, "new style")} will be added; ${existing} already in your library will be skipped.`,
+  ];
   if (repeated > 0) parts.push(`${pluralize(repeated, "repeated row")} ignored.`);
   return parts.join(" ");
+}
+
+/** "From Orders": style numbers typed on purchase orders that aren't in the library, all ticked. */
+function FromOrders({
+  suggestions,
+  error,
+  retrying,
+  onRetry,
+  unticked,
+  onUntickedChange,
+  disabled,
+}: {
+  suggestions: StyleSuggestion[] | undefined;
+  error: Error | null;
+  retrying: boolean;
+  onRetry: () => void;
+  unticked: Set<string>;
+  onUntickedChange: (next: Set<string>) => void;
+  disabled: boolean;
+}) {
+  if (!suggestions) {
+    return error ? (
+      <div role="alert" className="flex flex-col items-center gap-3 rounded-xl bg-muted px-4 py-6 text-center">
+        <p className="text-[15px] leading-snug text-muted-foreground md:text-[13px]">
+          Couldn't look through your orders. {error.message}
+        </p>
+        <Button type="button" variant="tinted" size="sm" onClick={onRetry} disabled={retrying}>
+          <RotateCw className={retrying ? "animate-spin" : undefined} />
+          Try Again
+        </Button>
+      </div>
+    ) : (
+      <div role="status" className="flex items-center justify-center gap-2 py-10 text-[15px] text-muted-foreground md:text-[13px]">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        Looking through your orders…
+      </div>
+    );
+  }
+
+  if (suggestions.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-xl bg-muted px-4 py-7 text-center">
+        <IconTile icon={Check} color="green" variant="tinted" size="lg" />
+        <div>
+          <div className="text-[17px] font-semibold md:text-[15px]">You're all set</div>
+          <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">
+            Every style number on your purchase orders is in your library.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const keys = suggestions.map((s) => styleKey(s.styleNumber));
+  const chosenCount = keys.filter((k) => !unticked.has(k)).length;
+  const allChosen = chosenCount === keys.length;
+  const toggle = (key: string) => {
+    const next = new Set(unticked);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onUntickedChange(next);
+  };
+
+  return (
+    <ListSection
+      header={allChosen ? pluralize(keys.length, "style") : `${chosenCount} of ${keys.length} selected`}
+      headerAction={
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onUntickedChange(allChosen ? new Set(keys) : new Set())}
+          className="relative shrink-0 rounded-md text-[15px] text-primary outline-none after:absolute after:-inset-x-2 after:-inset-y-3 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 md:text-[13px]"
+        >
+          {allChosen ? "Select None" : "Select All"}
+        </button>
+      }
+      footer="Each style is saved with the color and description used most on your orders. Your purchase orders don't change."
+      // Desktop: the list scrolls on its own, so Select All/None and the Add button stay in view
+      // however many styles there are. (Phones scroll the sheet, whose buttons are pinned.)
+      className="[&>div.bg-card]:bg-muted md:[&>div.bg-card]:max-h-[min(26rem,45dvh)] md:[&>div.bg-card]:overflow-y-auto md:[&>div.bg-card]:overscroll-contain"
+    >
+      {suggestions.map((s, i) => {
+        const key = keys[i];
+        const chosen = !unticked.has(key);
+        const details = suggestionDetails(s);
+        return (
+          <ListRow
+            key={key}
+            role="checkbox"
+            aria-checked={chosen}
+            onClick={() => toggle(key)}
+            disabled={disabled}
+            inset="3.25rem"
+            leading={<SelectionCircle checked={chosen} />}
+          >
+            <div className="text-[17px] font-semibold leading-[22px] md:text-[15px] md:leading-5">
+              <span className="block truncate">{s.styleNumber}</span>
+            </div>
+            <div className="mt-0.5 truncate text-[13px] leading-[18px] text-muted-foreground md:text-xs md:leading-4">
+              {details || <span className="italic text-muted-foreground/70">No color or description</span>}
+            </div>
+            <div className="truncate text-[13px] leading-[18px] text-muted-foreground md:text-xs md:leading-4">
+              {suggestionUsage(s)}
+            </div>
+          </ListRow>
+        );
+      })}
+    </ListSection>
+  );
+}
+
+/** iOS-style selection circle (Mail / Photos "Select"). */
+function SelectionCircle({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors duration-150",
+        checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40 bg-transparent",
+      )}
+    >
+      {checked && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+    </span>
+  );
 }

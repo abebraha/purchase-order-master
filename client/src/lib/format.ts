@@ -14,6 +14,18 @@ export function formatMoney(n: number | string | null | undefined): string {
   return money.format(Number(n) || 0);
 }
 
+const unitMoney = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+/** Unit prices keep sub-cent precision: $7.25, $0.125, $2.3456 (trims, labels, buttons…). */
+export function formatUnitPrice(n: number | string | null | undefined): string {
+  return unitMoney.format(Number(n) || 0);
+}
+
 /** $1.2K / $3.4M — for tight KPI tiles and chart axes. */
 export function formatMoneyCompact(n: number | string | null | undefined): string {
   return moneyCompact.format(Number(n) || 0);

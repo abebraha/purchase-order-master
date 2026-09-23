@@ -34,7 +34,7 @@ export function NeedsAttention({
     overdueCount > 0 && dueSoonCount > 0 ? (
       <>
         <Link href={ordersHref({ due: "overdue" })} className="text-primary hover:opacity-70">
-          {overdueCount.toLocaleString("en-US")} past their cancel date
+          {pluralize(overdueCount, "order")} past {overdueCount === 1 ? "its" : "their"} cancel date
         </Link>
         <span aria-hidden> · </span>
         <Link href={ordersHref({ due: "soon" })} className="text-primary hover:opacity-70">

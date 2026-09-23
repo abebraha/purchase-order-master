@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Ellipsis, FileUp, Plus, SearchX, Tags } from "lucide-react";
+import { ClipboardList, Ellipsis, FileSpreadsheet, FileUp, Plus, SearchX, Share, Tags } from "lucide-react";
 import type { StyleRecord } from "@shared/po";
 import { PageContainer, PageHeader } from "@/components/layout/AppShell";
 import { ListRow, ListSection, SearchField } from "@/components/kit";
@@ -13,15 +13,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteStyleDialog } from "@/components/styles/DeleteStyleDialog";
-import { ImportStylesDialog } from "@/components/styles/ImportStylesDialog";
+import { ImportStylesDialog, type ImportMode } from "@/components/styles/ImportStylesDialog";
 import { SortMenu } from "@/components/styles/SortMenu";
 import { StyleFormDialog } from "@/components/styles/StyleFormDialog";
 import { StyleList } from "@/components/styles/StyleList";
 import { StyleTable } from "@/components/styles/StyleTable";
+import { SuggestionsBanner } from "@/components/styles/SuggestionsBanner";
 import { filterStyles, sortStyles, type StyleSort } from "@/components/styles/styleUtils";
 import { useToast } from "@/hooks/use-toast";
 import { useIsDesktop } from "@/hooks/use-media-query";
-import { useStyles } from "@/lib/api";
+import { useStyleSuggestions, useStyles } from "@/lib/api";
 import { exportStylesCsv } from "@/lib/export";
 import { formatNumber, pluralize } from "@/lib/format";
 
@@ -39,6 +40,8 @@ function readSort(): StyleSort {
 
 export default function StyleManagement() {
   const { data: styles, isLoading, error, refetch, isRefetching } = useStyles();
+  // Style numbers typed on purchase orders that were never saved to the library.
+  const { data: suggestions = [] } = useStyleSuggestions();
   const isDesktop = useIsDesktop();
   const { toast } = useToast();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -52,6 +55,7 @@ export default function StyleManagement() {
   const [prefill, setPrefill] = useState("");
   const [deleting, setDeleting] = useState<StyleRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>("file");
 
   const setSort = (next: StyleSort) => {
     setSortState(next);
@@ -95,6 +99,10 @@ export default function StyleManagement() {
     setPrefill("");
     setFormOpen(true);
   };
+  const openImport = (mode: ImportMode = "file") => {
+    setImportMode(mode);
+    setImportOpen(true);
+  };
   const requestDelete = (style: StyleRecord) => {
     setFormOpen(false);
     setDeleting(style);
@@ -102,7 +110,7 @@ export default function StyleManagement() {
   const exportAll = () => {
     if (!styles?.length) return;
     exportStylesCsv(styles);
-    toast({ title: "Export Ready", description: `${pluralize(styles.length, "style")} saved as a CSV file.` });
+    toast({ title: "Styles exported", description: `${pluralize(styles.length, "style")} saved as a CSV file.` });
   };
 
   const hasStyles = total > 0;
@@ -110,43 +118,50 @@ export default function StyleManagement() {
 
   // ---------------------------------------------------------------------------
 
+  // Same order as every nav bar: the "•••" menu first, then secondary actions, the primary action last.
   const headerActions = (
     <>
-      {/* Phones: "+" and a "more" menu */}
-      <Button variant="plain" size="icon" aria-label="Add Style" onClick={() => openAdd()} className="md:hidden">
-        <Plus className="!h-[22px] !w-[22px]" strokeWidth={2.4} />
-      </Button>
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button variant="plain" size="icon" aria-label="More Actions" className="md:hidden">
-            <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-primary/20">
-              <Ellipsis className="!h-5 !w-5" strokeWidth={2.4} />
-            </span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[13rem]">
-          <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-            <FileUp />
-            Import
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={exportAll} disabled={!canExport}>
-            <Download />
-            Export CSV
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Phones: "•••" menu, then "+" at the far right */}
+      <div className="flex items-center md:hidden">
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="plain" size="icon" aria-label="More Actions">
+              <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-primary/20">
+                <Ellipsis className="!h-5 !w-5" strokeWidth={2.25} />
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuItem onSelect={() => openImport()}>
+              <FileUp />
+              Import Styles
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={exportAll} disabled={!canExport}>
+              <FileSpreadsheet />
+              Export Styles as CSV
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button variant="plain" size="icon" aria-label="Add Style" onClick={() => openAdd()}>
+          <Plus className="!h-[22px] !w-[22px]" strokeWidth={2.25} />
+        </Button>
+      </div>
 
-      {/* Desktop: labeled buttons */}
-      <Button variant="tinted" onClick={() => setImportOpen(true)} className="hidden md:inline-flex">
-        Import
-      </Button>
-      <Button variant="secondary" onClick={exportAll} disabled={!canExport} className="hidden md:inline-flex">
-        Export
-      </Button>
-      <Button onClick={() => openAdd()} className="hidden md:inline-flex">
-        <Plus strokeWidth={2.5} />
-        Add Style
-      </Button>
+      {/* Tablet and desktop: labeled buttons */}
+      <div className="hidden items-center gap-2 md:flex">
+        <Button variant="tinted" size="sm" onClick={() => openImport()}>
+          <FileUp strokeWidth={2.25} />
+          Import
+        </Button>
+        <Button variant="tinted" size="sm" onClick={exportAll} disabled={!canExport}>
+          <Share strokeWidth={2.25} />
+          Export
+        </Button>
+        <Button size="sm" onClick={() => openAdd()}>
+          <Plus strokeWidth={2.5} />
+          Add Style
+        </Button>
+      </div>
     </>
   );
 
@@ -156,7 +171,7 @@ export default function StyleManagement() {
   } else if (error && !styles) {
     body = (
       <ErrorState
-        title="Couldn't Load Styles"
+        title="Couldn't load styles"
         error={error}
         action={
           <Button onClick={() => refetch()} disabled={isRefetching}>
@@ -166,26 +181,35 @@ export default function StyleManagement() {
       />
     );
   } else if (!hasStyles) {
+    const fromOrders = suggestions.length;
     body = (
-      <div className="rounded-2xl bg-card">
-        <EmptyState
-          icon={Tags}
-          title="No styles yet"
-          description="Add the styles you order most, and you can pick them in seconds when you fill in a purchase order."
-          action={
-            <>
-              <Button onClick={() => openAdd()}>
-                <Plus strokeWidth={2.5} />
-                Add Style
+      <EmptyState
+        icon={Tags}
+        title="No styles yet"
+        description={
+          fromOrders > 0
+            ? `${pluralize(fromOrders, "style")} from your purchase orders can be added in one step. Then you can pick them in seconds on your next order.`
+            : "Add the styles you order most, and you can pick them in seconds when you fill in a purchase order."
+        }
+        action={
+          <>
+            {fromOrders > 0 && (
+              <Button onClick={() => openImport("orders")} className="w-full sm:w-auto">
+                <ClipboardList />
+                Add Styles from Orders
               </Button>
-              <Button variant="tinted" onClick={() => setImportOpen(true)}>
-                <FileUp />
-                Import
-              </Button>
-            </>
-          }
-        />
-      </div>
+            )}
+            <Button variant={fromOrders > 0 ? "tinted" : "default"} onClick={() => openAdd()}>
+              <Plus strokeWidth={2.5} />
+              Add Style
+            </Button>
+            <Button variant="tinted" onClick={() => openImport()}>
+              <FileUp />
+              Import Styles
+            </Button>
+          </>
+        }
+      />
     );
   } else {
     const noResults = results.length === 0;
@@ -194,6 +218,8 @@ export default function StyleManagement() {
 
     body = (
       <div className="space-y-5">
+        <SuggestionsBanner suggestions={suggestions} onReview={() => openImport("orders")} />
+
         <div className="flex items-center gap-2">
           <SearchField
             ref={searchRef}
@@ -220,25 +246,28 @@ export default function StyleManagement() {
         </div>
 
         {noResults ? (
-          <div className="rounded-2xl bg-card">
-            <EmptyState
-              icon={SearchX}
-              title={`No Results for “${trimmed}”`}
-              description="Check the spelling, or search by a different style #, color or description."
-              action={
-                canPrefill ? (
-                  <Button variant="tinted" onClick={() => openAdd(trimmed)}>
+          <EmptyState
+            icon={SearchX}
+            title="No matching styles"
+            description={
+              <span className="[overflow-wrap:anywhere]">
+                No styles match “{trimmed}”. Try part of a style #, color or description.
+              </span>
+            }
+            action={
+              <>
+                {canPrefill && (
+                  <Button variant="tinted" onClick={() => openAdd(trimmed)} className="max-w-[18rem]">
                     <Plus strokeWidth={2.5} />
-                    Add “{trimmed}”
+                    <span className="min-w-0 truncate">Add “{trimmed}”</span>
                   </Button>
-                ) : (
-                  <Button variant="tinted" onClick={() => setQuery("")}>
-                    Clear Search
-                  </Button>
-                )
-              }
-            />
-          </div>
+                )}
+                <Button variant={canPrefill ? "plain" : "tinted"} onClick={() => setQuery("")}>
+                  Clear Search
+                </Button>
+              </>
+            }
+          />
         ) : isDesktop ? (
           <StyleTable
             styles={visible}
@@ -279,7 +308,7 @@ export default function StyleManagement() {
           <p className="text-center text-[13px] tabular-nums text-muted-foreground md:text-xs" aria-live="polite">
             {searching
               ? `${pluralize(results.length, "match", "matches")} out of ${pluralize(total, "style")}`
-              : pluralize(total, "Style", "Styles")}
+              : pluralize(total, "style")}
           </p>
         )}
       </div>
@@ -291,7 +320,7 @@ export default function StyleManagement() {
       <PageHeader
         title="Styles"
         subtitle={
-          styles ? (total ? `${pluralize(total, "style")} in your catalog` : "Your catalog is empty") : "\u00a0"
+          styles ? (total ? `${pluralize(total, "style")} in your library` : "Your library is empty") : "\u00a0"
         }
         actions={headerActions}
       />
@@ -306,7 +335,7 @@ export default function StyleManagement() {
         onDelete={requestDelete}
       />
       <DeleteStyleDialog style={deleting} onOpenChange={(open) => !open && setDeleting(null)} />
-      <ImportStylesDialog open={importOpen} onOpenChange={setImportOpen} styles={styles} />
+      <ImportStylesDialog open={importOpen} onOpenChange={setImportOpen} styles={styles} initialMode={importMode} />
     </>
   );
 }

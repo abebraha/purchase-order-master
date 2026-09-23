@@ -107,7 +107,14 @@ function DeletedRow({
   );
 }
 
-export function RecentlyDeletedSection({ settings }: { settings: AppSettings }) {
+export function RecentlyDeletedSection({
+  settings,
+  onOpenLink,
+}: {
+  settings: AppSettings;
+  /** Navigates to an in-app page (Settings passes one that asks first when there are unsaved edits). */
+  onOpenLink?: (href: string) => void;
+}) {
   const { data, isLoading, error, refetch, isRefetching } = useDeletedPurchaseOrders();
   const recover = useRecoverDeletedPurchaseOrder();
   const { toast } = useToast();
@@ -139,7 +146,7 @@ export function RecentlyDeletedSection({ settings }: { settings: AppSettings }) 
           action: (
             <ToastAction
               altText={`Open PO #${po.poNumber}`}
-              onClick={() => navigate(`/purchase-orders/${po.id}`)}
+              onClick={() => (onOpenLink ?? navigate)(`/purchase-orders/${po.id}`)}
               className="h-8 rounded-full border-0 bg-primary/10 px-3.5 font-semibold text-primary hover:bg-primary/15 dark:bg-primary/20"
             >
               Open
@@ -192,7 +199,7 @@ export function RecentlyDeletedSection({ settings }: { settings: AppSettings }) 
           />
         ) : items.length === 0 ? (
           <ListRow>
-            <span className="text-[17px] text-muted-foreground md:text-[15px]">No recently deleted purchase orders.</span>
+            <span className="text-[17px] text-muted-foreground md:text-[15px]">No recently deleted purchase orders</span>
           </ListRow>
         ) : (
           <>

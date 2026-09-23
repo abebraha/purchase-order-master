@@ -22,6 +22,8 @@ export interface StyleSelection {
   styleNumber: string;
   color?: string;
   description?: string;
+  /** Just added to the catalog from this line ("Add “X” to Styles"). */
+  created?: boolean;
 }
 
 export interface StyleComboboxProps {
@@ -99,8 +101,8 @@ function useStylePicker({
   const typed = query.trim();
   const all = styles ?? [];
   const matches = useMemo(() => matchStyles(all, query), [all, query]);
-  const exact = typed ? all.some((s) => s.styleNumber.trim().toLowerCase() === typed.toLowerCase()) : false;
-  const showFreeText = typed.length > 0 && !exact;
+  const exactMatch = typed ? all.find((s) => s.styleNumber.trim().toLowerCase() === typed.toLowerCase()) : undefined;
+  const showFreeText = typed.length > 0 && !exactMatch;
 
   const close = () => onOpenChange(false);
 
@@ -123,7 +125,9 @@ function useStylePicker({
         color: color?.trim() ?? "",
         description: description?.trim() ?? "",
       });
-      onSelect({ styleId: rec.id, styleNumber: rec.styleNumber, color: rec.color, description: rec.description });
+      // The line's color/description are usually filled in after picking the style; the editor
+      // copies them onto this new catalog entry when the order is saved.
+      onSelect({ styleId: rec.id, styleNumber: rec.styleNumber, color: rec.color, description: rec.description, created: true });
       toast({ title: "Added to Styles", description: `${rec.styleNumber} is now in your style catalog.` });
       close();
     } catch (err) {
@@ -148,11 +152,22 @@ function useStylePicker({
     onOpenChange(true);
   };
 
+  /**
+   * Return in the search field: the style whose number is exactly what was typed, otherwise the
+   * typed text itself ("Use “X”") — never a different style that merely starts with it.
+   */
+  const pickFromReturn = () => {
+    if (exactMatch) chooseStyle(exactMatch);
+    else if (typed) pickTyped();
+  };
+
   return {
     query,
     setQuery,
     typed,
     matches,
+    exactMatch,
+    pickFromReturn,
     visible: matches.slice(0, MAX_RESULTS),
     hiddenCount: Math.max(0, matches.length - MAX_RESULTS),
     showFreeText,
@@ -189,17 +204,21 @@ function StyleSheetPicker(props: StyleComboboxProps) {
   }, [open]);
 
   const onSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter") return;
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
     e.preventDefault();
-    if (picker.visible[0] && picker.typed) picker.chooseStyle(picker.visible[0]);
-    else if (picker.showFreeText) picker.pickTyped();
+    if (picker.typed) picker.pickFromReturn();
+    else (e.target as HTMLInputElement).blur(); // nothing typed: just close the keyboard
   };
 
+  // Older orders may have lines identified only by their description.
+  const noStyleNumber = !value && !!props.description?.trim();
   const subtitle = invalid && errorMessage
     ? errorMessage
     : value
       ? `${label} · ${styleId ? "From your styles" : "Custom style"}`
-      : `${label} · Tap to search your styles`;
+      : noStyleNumber
+        ? `${label} · Tap to choose a style`
+        : `${label} · Tap to search your styles`;
 
   return (
     <>
@@ -217,10 +236,10 @@ function StyleSheetPicker(props: StyleComboboxProps) {
           <span
             className={cn(
               "block truncate text-[17px] leading-[22px]",
-              value ? "font-semibold text-foreground" : "text-primary",
+              value ? "font-semibold text-foreground" : noStyleNumber ? "text-muted-foreground" : "text-primary",
             )}
           >
-            {value || "Choose Style"}
+            {value || (noStyleNumber ? "No style #" : "Choose Style")}
           </span>
           <span
             className={cn(
@@ -282,7 +301,7 @@ function StyleSheetPicker(props: StyleComboboxProps) {
                 <ListSection
                   className="-mx-4"
                   header="New Style"
-                  footer="Adding it to Styles saves it with this item's color and description so you can reuse it."
+                  footer="Adding it to Styles saves it with this item's color and description when you save the order, so they fill in next time."
                 >
                   <ListRow
                     onClick={picker.pickTyped}
@@ -397,6 +416,24 @@ function StylePopoverPicker(props: StyleComboboxProps) {
                 <CommandEmpty className="px-4 py-6 text-center text-sm text-muted-foreground">
                   {picker.hasCatalog ? "No matching styles." : "Your style catalog is empty. Type a style number."}
                 </CommandEmpty>
+                {/* Listed first so the highlighted row — what Return does — is the typed text
+                    (arrow keys still reach the partial matches below). */}
+                {picker.showFreeText && (
+                  <CommandGroup heading="New Style">
+                    <CommandItem value="__use" onSelect={picker.pickTyped} className="gap-3">
+                      <IconTile icon={PenLine} color="gray" className="!h-6 !w-6 !rounded-md [&_svg]:!h-3.5 [&_svg]:!w-3.5" />
+                      <span className="min-w-0 flex-1 truncate">
+                        Use “{picker.typed}”
+                        <span className="ml-1.5 text-xs text-muted-foreground">just for this order</span>
+                      </span>
+                    </CommandItem>
+                    <CommandItem value="__add" onSelect={() => void picker.addTyped()} disabled={picker.adding} className="gap-3">
+                      <IconTile icon={Plus} color="green" className="!h-6 !w-6 !rounded-md [&_svg]:!h-3.5 [&_svg]:!w-3.5" />
+                      <span className="min-w-0 flex-1 truncate">Add “{picker.typed}” to Styles</span>
+                      {picker.adding && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    </CommandItem>
+                  </CommandGroup>
+                )}
                 {picker.visible.length > 0 && (
                   <CommandGroup heading={picker.typed ? "Matching Styles" : "Your Styles"}>
                     {picker.visible.map((s) => (
@@ -415,22 +452,6 @@ function StylePopoverPicker(props: StyleComboboxProps) {
                         {picker.hiddenCount} more — keep typing to narrow the list.
                       </p>
                     )}
-                  </CommandGroup>
-                )}
-                {picker.showFreeText && (
-                  <CommandGroup heading="New Style">
-                    <CommandItem value="__use" onSelect={picker.pickTyped} className="gap-3">
-                      <IconTile icon={PenLine} color="gray" className="!h-6 !w-6 !rounded-md [&_svg]:!h-3.5 [&_svg]:!w-3.5" />
-                      <span className="min-w-0 flex-1 truncate">
-                        Use “{picker.typed}”
-                        <span className="ml-1.5 text-xs text-muted-foreground">just for this order</span>
-                      </span>
-                    </CommandItem>
-                    <CommandItem value="__add" onSelect={() => void picker.addTyped()} disabled={picker.adding} className="gap-3">
-                      <IconTile icon={Plus} color="green" className="!h-6 !w-6 !rounded-md [&_svg]:!h-3.5 [&_svg]:!w-3.5" />
-                      <span className="min-w-0 flex-1 truncate">Add “{picker.typed}” to Styles</span>
-                      {picker.adding && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    </CommandItem>
                   </CommandGroup>
                 )}
               </>

@@ -206,29 +206,64 @@ export function parsePastedStyles(text: string): ParsedPaste {
     rows = rows.slice(1);
   }
 
+  collectStyles(result, rows, (cells) => ({
+    styleNumber: (cells[styleCol] ?? "").slice(0, 64),
+    color: colorCol >= 0 ? cells[colorCol] ?? "" : "",
+    // Unquoted commas in a typed description ("Bra, lace trim") would split it — keep the rest.
+    description:
+      descriptionCol < 0
+        ? ""
+        : !byHeader && delimiter === ","
+          ? cells.slice(descriptionCol).filter(Boolean).join(", ")
+          : cells[descriptionCol] ?? "",
+  }));
+  return result;
+}
+
+/** Adds each row's style to `result`, skipping rows without a style # and repeats (case-insensitive). */
+function collectStyles(result: ParsedPaste, rows: string[][], read: (cells: string[]) => StyleFormValues) {
   const seen = new Set<string>();
   for (const cells of rows) {
-    const styleNumber = cells[styleCol] ?? "";
-    if (!styleNumber) {
+    const style = read(cells);
+    if (!style.styleNumber) {
       result.blank++;
       continue;
     }
-    const key = styleNumber.toLowerCase();
+    const key = style.styleNumber.toLowerCase();
     if (seen.has(key)) {
       result.repeated++;
       continue;
     }
     seen.add(key);
-    const color = colorCol >= 0 ? cells[colorCol] ?? "" : "";
-    // Unquoted commas in a typed description ("Bra, lace trim") would split it — keep the rest.
-    const description =
-      descriptionCol < 0
-        ? ""
-        : !byHeader && delimiter === ","
-          ? cells.slice(descriptionCol).filter(Boolean).join(", ")
-          : cells[descriptionCol] ?? "";
-    result.styles.push({ styleNumber: styleNumber.slice(0, 64), color, description });
+    result.styles.push(style);
   }
+}
+
+// The server's CSV import (POST /api/styles/import) reads the first row as the header and finds the
+// columns by these names; parseStylesCsv mirrors it so the sheet can say what an upload will add.
+const CSV_STYLE_HEADERS = ["style_number", "style number", "style #", "style no", "style", "stylenumber"].map(normalizeHeader);
+const CSV_COLOR_HEADERS = ["color", "colour"].map(normalizeHeader);
+const CSV_DESCRIPTION_HEADERS = ["description", "desc"].map(normalizeHeader);
+
+/** Styles a CSV upload would import (empty when there's no style # column or no style numbers). */
+export function parseStylesCsv(text: string): ParsedPaste {
+  const result: ParsedPaste = { styles: [], skippedHeader: false, repeated: 0, blank: 0 };
+  const rows = parseDelimited(text.replace(/^\uFEFF/, ""), ",")
+    .map((cells) => cells.map((c) => c.trim()))
+    .filter((cells) => cells.some(Boolean));
+  if (!rows.length) return result;
+  const header = rows[0].map(normalizeHeader);
+  const find = (names: string[]) => header.findIndex((h) => names.includes(h));
+  const styleCol = find(CSV_STYLE_HEADERS);
+  if (styleCol < 0) return result;
+  const colorCol = find(CSV_COLOR_HEADERS);
+  const descriptionCol = find(CSV_DESCRIPTION_HEADERS);
+  result.skippedHeader = true;
+  collectStyles(result, rows.slice(1), (cells) => ({
+    styleNumber: cells[styleCol] ?? "",
+    color: colorCol >= 0 ? cells[colorCol] ?? "" : "",
+    description: descriptionCol >= 0 ? cells[descriptionCol] ?? "" : "",
+  }));
   return result;
 }
 
